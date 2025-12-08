@@ -1,0 +1,224 @@
+import json
+import os
+import re
+from typing import List, Tuple
+from collections import Counter
+
+from .utils import (
+    byte_to_unicode,
+    unicode_to_byte_map,
+    get_pairs,
+    get_stats,
+    merge_vocab
+)
+
+class ByteLevelBPE:
+
+    def __init__(self):
+        self.byte_encoder = byte_to_unicode()
+        self.byte_decoder = unicode_to_byte_map()
+        self.bpe_ranks = {}
+        self.encoder = {}
+        self.decoder = {}
+        self.cache = {}
+
+        self.pat = re.compile(
+            r"'(?:s|t|re|ve|m|ll|d)| ?\w+| ?[^\s\w]+|\s+(?!\S)|\s+",
+            re.IGNORECASE
+        )
+
+    def train(self, texts: List[str], vocab_size: int = 1000, verbose: bool = False):
+
+        if vocab_size < 256:
+            raise ValueError(f"vocab_size must be at least 256, got {vocab_size}")
+
+        word_freqs = Counter()
+
+        for text in texts:
+            tokens = re.findall(self.pat, text)
+
+            for token in tokens:
+                token_bytes = token.encode('utf-8')
+                byte_encoded = ''.join(self.byte_encoder[b] for b in token_bytes)
+                word_freqs[byte_encoded] += 1
+
+        vocab = {}
+
+        for word, freq in word_freqs.items():
+            vocab[tuple(word)] = freq
+
+        num_merges = vocab_size - 256
+        merges = []
+
+        for i in range(num_merges):
+            pairs = get_stats(vocab)
+
+            if not pairs:
+                print(f"\nWarning: No more pairs to merge at iteration {i}")
+                break
+
+            best_pair = max(pairs, key=pairs.get)
+            vocab = merge_vocab(best_pair, vocab)
+            merges.append(best_pair)
+
+        self.encoder = {self.byte_encoder[i]: i for i in range(256)}
+        next_id = 256
+
+        for pair in merges:
+            merged_token = ''.join(pair)
+            self.encoder[merged_token] = next_id
+            next_id += 1
+
+        self.decoder = {v: k for k, v in self.encoder.items()}
+        self.bpe_ranks = {pair: i for i, pair in enumerate(merges)}
+
+        if verbose:
+            print(f"\nVocab size: {len(self.encoder)}")
+            print(f"Made {len(merges)} merges")
+
+    def _apply_merge(self, word: tuple, pair: Tuple[str, str]) -> tuple:
+        first, second = pair
+        new_word = []
+        i = 0
+
+        while i < len(word):
+            try:
+                j = word.index(first, i)
+                new_word.extend(word[i:j])
+                i = j
+            except ValueError:
+                new_word.extend(word[i:])
+                break
+
+            if i < len(word) - 1 and word[i] == first and word[i + 1] == second:
+                new_word.append(first + second)
+                i += 2
+            else:
+                new_word.append(word[i])
+                i += 1
+
+        return tuple(new_word)
+
+    def bpe(self, token: str) -> str:
+
+        if token in self.cache:
+            return self.cache[token]
+
+        word = tuple(token)
+        pairs = get_pairs(word)
+
+        if not pairs:
+            return token
+
+        while True:
+            bigram = min(pairs, key=lambda p: self.bpe_ranks.get(p, float('inf')))
+
+            if bigram not in self.bpe_ranks:
+                break
+
+            word = self._apply_merge(word, bigram)
+
+            if len(word) == 1:
+                break
+
+            pairs = get_pairs(word)
+
+        result = ' '.join(word)
+
+        self.cache[token] = result
+        return result
+
+    def tokenize(self, text: str) -> List[str]:
+        bpe_tokens = []
+
+        for raw_token in re.findall(self.pat, text):
+            token_bytes = raw_token.encode('utf-8')
+            byte_token = ''.join(self.byte_encoder[b] for b in token_bytes)
+            bpe_result = self.bpe(byte_token)
+            bpe_tokens.extend(bpe_result.split(' '))
+
+        return bpe_tokens
+
+    def encode(self, text: str) -> List[int]:
+        tokens = self.tokenize(text)
+        ids = []
+
+        for token in tokens:
+            token_id = self.encoder.get(token, 0)
+            ids.append(token_id)
+
+        return ids
+
+    def decode(self, ids: List[int]) -> str:
+        tokens = []
+
+        for token_id in ids:
+            token_str = self.decoder.get(token_id, '')
+            tokens.append(token_str)
+
+        text = ''.join(tokens)
+        byte_list = bytearray()
+
+        for char in text:
+            if char in self.byte_decoder:
+                byte_list.append(self.byte_decoder[char])
+            else:
+                byte_list.append(ord('?'))
+
+        return byte_list.decode('utf-8', errors='replace')
+
+    def save(self, folder: str):
+        os.makedirs(folder, exist_ok=True)
+        vocab_path = os.path.join(folder, 'vocab.json')
+
+        with open(vocab_path, 'w', encoding='utf-8') as f:
+            json.dump(self.encoder, f, ensure_ascii=False, indent=2)
+
+        merges_path = os.path.join(folder, 'merges.txt')
+
+        with open(merges_path, 'w', encoding='utf-8') as f:
+            f.write('#version: 0.2\n')
+
+            for pair, rank in sorted(self.bpe_ranks.items(), key=lambda x: x[1]):
+                f.write(f"{pair[0]} {pair[1]}\n")
+
+    def load(self, folder: str):
+        vocab_path = os.path.join(folder, 'vocab.json')
+
+        with open(vocab_path, 'r', encoding='utf-8') as f:
+            self.encoder = json.load(f)
+
+        self.decoder = {v: k for k, v in self.encoder.items()}
+        merges_path = os.path.join(folder, 'merges.txt')
+
+        with open(merges_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        merges = []
+
+        for line in lines[1:]:
+            line = line.strip()
+            if line:
+                parts = line.split()
+                if len(parts) == 2:
+                    merges.append(tuple(parts))
+
+        self.bpe_ranks = {}
+
+        for i, pair in enumerate(merges):
+            self.bpe_ranks[pair] = i
+
+        self.cache = {}
+
+    def __repr__(self) -> str:
+        vocab_size = len(self.encoder) if self.encoder else 0
+        return f"ByteLevelBPE(vocab_size={vocab_size})"
+
+    @property
+    def vocab_size(self) -> int:
+        return len(self.encoder)
+
+
+if __name__ == "__main__":
+    tokenizer = ByteLevelBPE()
+    print("Created tokenizer:", tokenizer)

@@ -1,0 +1,3 @@
+[submodule "imageinwords"]
+	path = imageinwords
+	url = https://github.com/google/imageinwords.git

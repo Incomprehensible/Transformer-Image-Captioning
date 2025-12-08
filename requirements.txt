@@ -1,0 +1,16 @@
+typeguard
+numpy
+pandas
+scikit-learn
+scipy
+matplotlib
+Pillow
+
+--find-links https://download.pytorch.org/whl/cu128
+torch==2.7.0 
+torchvision==0.22.0
+transformers
+datasets<4.0.0
+datasets[vision]<4.0.0
+
+tensorboard

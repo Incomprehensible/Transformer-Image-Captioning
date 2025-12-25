@@ -6,6 +6,11 @@ CONFIG_ROOT = pathlib.Path(__file__).parent.resolve()
 
 TOKENIZER_DATA_PATH = CONFIG_ROOT / 'tokenizer_data'
 
+class SpecialTokens(str, Enum):
+    PAD = '<pad>'
+    BOS = '<bos>'
+    EOS = '<eos>'
+
 class EncoderArch(str, Enum):
     RESNET50 = 'resnet50'
     VIT_BASE_PATCH16_224 = 'vit-base-patch16-224'

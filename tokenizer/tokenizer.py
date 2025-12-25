@@ -3,6 +3,10 @@ import os
 import re
 from typing import List, Tuple
 from collections import Counter
+import sys
+sys.path.append("..")
+
+import config
 
 from .utils import (
     byte_to_unicode,
@@ -14,12 +18,13 @@ from .utils import (
 
 class ByteLevelBPE:
 
-    def __init__(self):
+    def __init__(self, special_tokens: List[config.SpecialTokens] = None):
         self.byte_encoder = byte_to_unicode()
         self.byte_decoder = unicode_to_byte_map()
         self.bpe_ranks = {}
         self.encoder = {}
         self.decoder = {}
+        self.special_tokens = special_tokens if special_tokens else []
         self.cache = {}
 
         self.pat = re.compile(
@@ -30,7 +35,10 @@ class ByteLevelBPE:
     def train(self, texts: List[str], vocab_size: int = 1000, verbose: bool = False):
 
         if vocab_size < 256:
-            raise ValueError(f"vocab_size must be at least 256, got {vocab_size}")
+            raise ValueError(f"vocab_size (without special tokens) must be at least 256, got {vocab_size}")
+
+        special_tokens_len = len(self.special_tokens)
+        special_tokens_dict = {self.special_tokens[i]: i for i in range(len(self.special_tokens))}
 
         word_freqs = Counter()
 
@@ -61,8 +69,9 @@ class ByteLevelBPE:
             vocab = merge_vocab(best_pair, vocab)
             merges.append(best_pair)
 
-        self.encoder = {self.byte_encoder[i]: i for i in range(256)}
-        next_id = 256
+        self.encoder = {self.byte_encoder[i]: i + special_tokens_len for i in range(256)}
+        self.encoder.update(special_tokens_dict)
+        next_id = 256 + special_tokens_len
 
         for pair in merges:
             merged_token = ''.join(pair)
@@ -71,9 +80,9 @@ class ByteLevelBPE:
 
         self.decoder = {v: k for k, v in self.encoder.items()}
         self.bpe_ranks = {pair: i for i, pair in enumerate(merges)}
-
+        
         if verbose:
-            print(f"\nVocab size: {len(self.encoder)}")
+            print(f"\nVocab size (with special tokens): {len(self.encoder)}")
             print(f"Made {len(merges)} merges")
 
     def _apply_merge(self, word: tuple, pair: Tuple[str, str]) -> tuple:
@@ -139,13 +148,29 @@ class ByteLevelBPE:
 
         return bpe_tokens
 
-    def encode(self, text: str) -> List[int]:
+    def encode(self, text: str, max_seq_length: int, verbose: bool = False) -> List[int]:
         tokens = self.tokenize(text)
         ids = []
 
         for token in tokens:
             token_id = self.encoder.get(token, 0)
             ids.append(token_id)
+
+        # trim
+        if len(ids) > max_seq_length:
+            ids = ids[:max_seq_length]
+            if verbose:
+                print(f"Warning: input text truncated to {max_seq_length} tokens.")
+        if config.SpecialTokens.BOS and config.SpecialTokens.EOS in self.special_tokens:
+            if len(ids) > max_seq_length - 2:
+                ids = ids[:-2]
+            ids = [self.encoder[config.SpecialTokens.BOS]] + ids + [self.encoder[config.SpecialTokens.EOS]]
+            if verbose:
+                print(f"Warning: Added BOS and EOS tokens, total length is now {len(ids)}.")
+        if config.SpecialTokens.PAD in self.special_tokens:
+            ids = ids + (max_seq_length - len(ids)) * [self.encoder[config.SpecialTokens.PAD]]
+            if verbose:
+                print(f"Warning: Added PAD tokens, total length is now {len(ids)}.")
 
         return ids
 
@@ -166,6 +191,10 @@ class ByteLevelBPE:
                 byte_list.append(ord('?'))
 
         return byte_list.decode('utf-8', errors='replace')
+
+    def strip(self, text: str) -> str:
+        pattern = '|'.join(re.escape(token) for token in self.special_tokens)
+        return re.sub(pattern, '', text).strip()
 
     def save(self, folder: str):
         os.makedirs(folder, exist_ok=True)

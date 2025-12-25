@@ -192,6 +192,12 @@ class ByteLevelBPE:
 
         return byte_list.decode('utf-8', errors='replace')
 
+    def get_padding_token_id(self) -> int:
+        if config.SpecialTokens.PAD in self.special_tokens:
+            return self.encoder[config.SpecialTokens.PAD]
+        else:
+            raise ValueError("Padding token not defined in special tokens.")
+
     def strip(self, text: str) -> str:
         pattern = '|'.join(re.escape(token) for token in self.special_tokens)
         return re.sub(pattern, '', text).strip()

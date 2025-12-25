@@ -58,9 +58,9 @@ PATCH_SIZE = 16 #112 #16
 
 TEXT_VOCAB_SIZE = 1000
 TEXT_EMBEDDING_DIM = 300 # our d_embed (different from d_model but in this case we set them the same)
-IMG_EMBEDDING_DIM = 300 # doesn't need to be same as TEXT_EMBEDDING_DIM due to projection layer
+IMG_EMBEDDING_DIM = 400 # doesn't need to be same as TEXT_EMBEDDING_DIM due to projection layer
 
-USE_CONV_IMG_EMBEDDING = False
+USE_CONV_IMG_EMBEDDING = True
 
 ENCODER_NUM_BLOCKS = 10
 ENCODER_NUM_HEADS = 10

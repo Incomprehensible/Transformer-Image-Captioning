@@ -51,6 +51,9 @@ EVAL_DATASET_SPLIT='IIW-400'
 
 NUM_INPUT_CHANNELS = 3
 
+# include bias in linear layers, except for last linear layer if weight tying is used
+USE_BIAS = False
+
 IMG_HEIGHT = 224
 IMG_WIDTH = 224
 PATCH_SIZE = 16 #112 #16
@@ -64,6 +67,8 @@ TEXT_EMBEDDING_DIM = 768 # our d_embed (different from d_model but in this case 
 EMBEDDING_DIM = TEXT_EMBEDDING_DIM  # shared embedding dimension for both image and text (d_model)
 
 USE_PROJECTION_LAYER = (IMG_EMBEDDING_DIM != EMBEDDING_DIM)
+
+USE_WEIGHT_TYING = False
 
 ENCODER_NUM_BLOCKS = 12
 ENCODER_NUM_HEADS = 12

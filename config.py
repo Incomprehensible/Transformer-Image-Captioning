@@ -43,7 +43,7 @@ elif MAX_SEQUENCE_LENGTH_STRATEGY == MaxSeqLengthStrategy.PERCENTILE_95:
 elif MAX_SEQUENCE_LENGTH_STRATEGY == MaxSeqLengthStrategy.PERCENTILE_99:
     MAX_TEXT_SEQUENCE_LENGTH = json.load(open(TOKENIZER_DATA_PATH / 'description_stats.json'))['max_99']
 else:
-    MAX_TEXT_SEQUENCE_LENGTH = 30  # Custom value; adjust as needed
+    MAX_TEXT_SEQUENCE_LENGTH = 100  # Custom value; adjust as needed
 
 USE_EVAL_DATASET=True
 EVAL_DATASET_INFO_PATH= 'imageinwords/datasets'
@@ -54,15 +54,15 @@ NUM_INPUT_CHANNELS = 3
 # include bias in linear layers, except for last linear layer if weight tying is used
 USE_BIAS = False
 
-IMG_HEIGHT = 224
-IMG_WIDTH = 224
+IMG_HEIGHT = 384
+IMG_WIDTH = 384
 PATCH_SIZE = 16 #112 #16
 # NUM_PATCHES = (IMG_HEIGHT // PATCH_SIZE) * (IMG_WIDTH // PATCH_SIZE)
-IMG_EMBEDDING_DIM = 576 # doesn't need to be same as TEXT_EMBEDDING_DIM due to projection layer
+IMG_EMBEDDING_DIM = 768 # doesn't need to be same as TEXT_EMBEDDING_DIM due to projection layer
 USE_CONV_IMG_EMBEDDING = True
 
-TEXT_VOCAB_SIZE = 1000
-TEXT_EMBEDDING_DIM = 768 # our d_embed (different from d_model but in this case we set them the same)
+TEXT_VOCAB_SIZE = 1003
+TEXT_EMBEDDING_DIM = 600 # our d_embed (different from d_model but in this case we set them the same)
 
 EMBEDDING_DIM = TEXT_EMBEDDING_DIM  # shared embedding dimension for both image and text (d_model)
 
@@ -77,7 +77,7 @@ ENCODER_HIDDEN_DIM = IMG_EMBEDDING_DIM * 4
 
 DECODER_NUM_BLOCKS = 4
 DECODER_NUM_HEADS = ENCODER_NUM_HEADS
-DECODER_HIDDEN_DIM = TEXT_EMBEDDING_DIM * 4
+DECODER_HIDDEN_DIM = EMBEDDING_DIM * 4
 DECODER_DROPOUT_PROB = 0.1
 
 # Params from CPTR paper:

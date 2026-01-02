@@ -192,6 +192,9 @@ class ByteLevelBPE:
 
         return byte_list.decode('utf-8', errors='replace')
 
+    def token_to_id(self, token: str) -> int:
+        return self.encoder.get(token, 0)  # return 0 if token not found
+
     def get_padding_token_id(self) -> int:
         if config.SpecialTokens.PAD in self.special_tokens:
             return self.encoder[config.SpecialTokens.PAD]

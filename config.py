@@ -6,6 +6,17 @@ CONFIG_ROOT = pathlib.Path(__file__).parent.resolve()
 
 TOKENIZER_DATA_PATH = CONFIG_ROOT / 'tokenizer_data'
 
+SPLIT_RATIO = 0.2
+RANDOM_SEED = 42
+BATCH_SIZE = 4
+
+class Dataset(str, Enum):
+    DOCCI = 'docci'
+    DOCCI_IIW = 'docci_iiw' # TODO
+    COCO = 'coco'
+
+DATASET = Dataset.COCO
+
 class SpecialTokens(str, Enum):
     PAD = '<pad>'
     BOS = '<bos>'
@@ -16,9 +27,9 @@ class EncoderArch(str, Enum):
     VIT_BASE_PATCH16_224 = 'vit-base-patch16-224'
     VIT_LARGE_PATCH16_224 = 'vit-large-patch16-224'
     CUSTOM_VIT_STYLE = 'custom-vit-style'
-    CUSTOM_SHOW_AND_TELL_STYLE = 'custom-show-attend-tell'
+    # CUSTOM_SHOW_AND_TELL_STYLE = 'custom-show-attend-tell'
 
-ENCODER_ARCH = EncoderArch.CUSTOM_VIT_STYLE
+ENCODER_ARCH = EncoderArch.CUSTOM_VIT_STYLE # TODO
 
 class MaxSeqLengthStrategy(str, Enum):
     MAX = 'max'
@@ -33,20 +44,21 @@ class MaxSeqLengthStrategy(str, Enum):
 MAX_SEQUENCE_LENGTH_STRATEGY = MaxSeqLengthStrategy.CUSTOM
 
 if MAX_SEQUENCE_LENGTH_STRATEGY == MaxSeqLengthStrategy.MAX:
-    MAX_TEXT_SEQUENCE_LENGTH = json.load(open(TOKENIZER_DATA_PATH / 'description_stats.json'))['max']
+    MAX_TEXT_SEQUENCE_LENGTH = json.load(open(TOKENIZER_DATA_PATH / f'description_stats_{DATASET}.json'))['max']
 elif MAX_SEQUENCE_LENGTH_STRATEGY == MaxSeqLengthStrategy.PERCENTILE_90:
-    MAX_TEXT_SEQUENCE_LENGTH = json.load(open(TOKENIZER_DATA_PATH / 'description_stats.json'))['max_90']
+    MAX_TEXT_SEQUENCE_LENGTH = json.load(open(TOKENIZER_DATA_PATH / f'description_stats_{DATASET}.json'))['max_90']
 elif MAX_SEQUENCE_LENGTH_STRATEGY == MaxSeqLengthStrategy.PERCENTILE_92:
-    MAX_TEXT_SEQUENCE_LENGTH = json.load(open(TOKENIZER_DATA_PATH / 'description_stats.json'))['max_92']
+    MAX_TEXT_SEQUENCE_LENGTH = json.load(open(TOKENIZER_DATA_PATH / f'description_stats_{DATASET}.json'))['max_92']
 elif MAX_SEQUENCE_LENGTH_STRATEGY == MaxSeqLengthStrategy.PERCENTILE_95:
-    MAX_TEXT_SEQUENCE_LENGTH = json.load(open(TOKENIZER_DATA_PATH / 'description_stats.json'))['max_95']
+    MAX_TEXT_SEQUENCE_LENGTH = json.load(open(TOKENIZER_DATA_PATH / f'description_stats_{DATASET}.json'))['max_95']
 elif MAX_SEQUENCE_LENGTH_STRATEGY == MaxSeqLengthStrategy.PERCENTILE_99:
-    MAX_TEXT_SEQUENCE_LENGTH = json.load(open(TOKENIZER_DATA_PATH / 'description_stats.json'))['max_99']
+    MAX_TEXT_SEQUENCE_LENGTH = json.load(open(TOKENIZER_DATA_PATH / f'description_stats_{DATASET}.json'))['max_99']
 else:
-    MAX_TEXT_SEQUENCE_LENGTH = 100  # Custom value; adjust as needed
+    MAX_TEXT_SEQUENCE_LENGTH = 60  # Custom value; adjust as needed
 
-USE_EVAL_DATASET=True
-EVAL_DATASET_INFO_PATH= 'imageinwords/datasets'
+TOKENIZER_FILENAME_PREFIX = f'bpe_tokenizer_{DATASET}'
+
+EVAL_DATASET_INFO_PATH= 'imageinwords/datasets' # TODO
 EVAL_DATASET_SPLIT='IIW-400'
 
 NUM_INPUT_CHANNELS = 3
@@ -56,29 +68,35 @@ USE_BIAS = False
 
 IMG_HEIGHT = 384
 IMG_WIDTH = 384
-PATCH_SIZE = 16 #112 #16
+PATCH_SIZE = 16
 # NUM_PATCHES = (IMG_HEIGHT // PATCH_SIZE) * (IMG_WIDTH // PATCH_SIZE)
 IMG_EMBEDDING_DIM = 768 # doesn't need to be same as TEXT_EMBEDDING_DIM due to projection layer
 USE_CONV_IMG_EMBEDDING = True
 
-TEXT_VOCAB_SIZE = 1003
+TEXT_VOCAB_SIZE = 1000 + SpecialTokens.__members__.__len__()  # adjust based on tokenizer vocab size
 TEXT_EMBEDDING_DIM = 600 # our d_embed (different from d_model but in this case we set them the same)
 
 EMBEDDING_DIM = TEXT_EMBEDDING_DIM  # shared embedding dimension for both image and text (d_model)
 
 USE_PROJECTION_LAYER = (IMG_EMBEDDING_DIM != EMBEDDING_DIM)
 
-USE_WEIGHT_TYING = False
+USE_WEIGHT_TYING = True
 
 ENCODER_NUM_BLOCKS = 12
 ENCODER_NUM_HEADS = 12
 ENCODER_DROPOUT_PROB = 0.1
 ENCODER_HIDDEN_DIM = IMG_EMBEDDING_DIM * 4
 
-DECODER_NUM_BLOCKS = 4
+DECODER_NUM_BLOCKS = 8
 DECODER_NUM_HEADS = ENCODER_NUM_HEADS
 DECODER_HIDDEN_DIM = EMBEDDING_DIM * 4
 DECODER_DROPOUT_PROB = 0.1
+
+NUM_EPOCHS = 5
+SUBLAYER_DROPOUT = True
+LR = 1e-4
+WEIGHT_DECAY = 0.01
+LABEL_SMOOTHING = 0.1
 
 # Params from CPTR paper:
 # BATCH_SIZE         = 1              #(1)

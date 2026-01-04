@@ -34,10 +34,10 @@ class ByteLevelBPE:
 
     def train(self, texts: List[str], vocab_size: int = 1000, verbose: bool = False):
 
-        if vocab_size < 256:
+        special_tokens_len = len(self.special_tokens)
+        if vocab_size - special_tokens_len < 256:
             raise ValueError(f"vocab_size (without special tokens) must be at least 256, got {vocab_size}")
 
-        special_tokens_len = len(self.special_tokens)
         special_tokens_dict = {self.special_tokens[i]: i for i in range(len(self.special_tokens))}
 
         word_freqs = Counter()
@@ -55,7 +55,7 @@ class ByteLevelBPE:
         for word, freq in word_freqs.items():
             vocab[tuple(word)] = freq
 
-        num_merges = vocab_size - 256
+        num_merges = vocab_size - 256 - special_tokens_len
         merges = []
 
         for i in range(num_merges):
@@ -205,14 +205,14 @@ class ByteLevelBPE:
         pattern = '|'.join(re.escape(token) for token in self.special_tokens)
         return re.sub(pattern, '', text).strip()
 
-    def save(self, folder: str):
+    def save(self, folder: str, filename_prefix: str = "bpe_tokenizer"):
         os.makedirs(folder, exist_ok=True)
-        vocab_path = os.path.join(folder, 'vocab.json')
+        vocab_path = os.path.join(folder, 'vocab_{}.json'.format(filename_prefix))
 
         with open(vocab_path, 'w', encoding='utf-8') as f:
             json.dump(self.encoder, f, ensure_ascii=False, indent=2)
 
-        merges_path = os.path.join(folder, 'merges.txt')
+        merges_path = os.path.join(folder, 'merges_{}.txt'.format(filename_prefix))
 
         with open(merges_path, 'w', encoding='utf-8') as f:
             f.write('#version: 0.2\n')
@@ -220,14 +220,14 @@ class ByteLevelBPE:
             for pair, rank in sorted(self.bpe_ranks.items(), key=lambda x: x[1]):
                 f.write(f"{pair[0]} {pair[1]}\n")
 
-    def load(self, folder: str):
-        vocab_path = os.path.join(folder, 'vocab.json')
+    def load(self, folder: str, filename_prefix: str = "bpe_tokenizer"):
+        vocab_path = os.path.join(folder, 'vocab_{}.json'.format(filename_prefix))
 
         with open(vocab_path, 'r', encoding='utf-8') as f:
             self.encoder = json.load(f)
 
         self.decoder = {v: k for k, v in self.encoder.items()}
-        merges_path = os.path.join(folder, 'merges.txt')
+        merges_path = os.path.join(folder, 'merges_{}.txt'.format(filename_prefix))
 
         with open(merges_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()

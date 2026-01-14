@@ -157,7 +157,6 @@ class ByteLevelBPE:
         tokens = self.tokenize(text)
         ids = [self.encoder.get(token, 0) for token in tokens]
 
-        # Add BOS / EOS
         if config.SpecialTokens.BOS in self.special_tokens:
             ids = [self.encoder[config.SpecialTokens.BOS]] + ids
         if config.SpecialTokens.EOS in self.special_tokens:

@@ -150,29 +150,27 @@ class ByteLevelBPE:
     def encode(
         self,
         text: str,
-        max_seq_length: int | None = None,
+        max_seq_length: int,
         verbose: bool = False
     ) -> List[int]:
 
         tokens = self.tokenize(text)
         ids = [self.encoder.get(token, 0) for token in tokens]
 
-        if config.SpecialTokens.BOS in self.special_tokens:
-            ids = [self.encoder[config.SpecialTokens.BOS]] + ids
-        if config.SpecialTokens.EOS in self.special_tokens:
-            ids = ids + [self.encoder[config.SpecialTokens.EOS]]
-
-        if max_seq_length is not None:
-            if len(ids) > max_seq_length:
-                ids = ids[:max_seq_length]
-                if verbose:
-                    print(
-                        f"Warning: input text truncated to {max_seq_length} tokens."
-                    )
-
-            if config.SpecialTokens.PAD in self.special_tokens:
-                pad_id = self.encoder[config.SpecialTokens.PAD]
-                ids = ids + [pad_id] * (max_seq_length - len(ids))
+        if len(ids) > max_seq_length:
+            ids = ids[:max_seq_length]
+            if verbose:
+                print(f"Warning: input text truncated to {max_seq_length} tokens.")
+        if config.SpecialTokens.BOS and config.SpecialTokens.EOS in self.special_tokens:
+            if len(ids) > max_seq_length - 2:
+                ids = ids[:-2]
+            ids = [self.encoder[config.SpecialTokens.BOS]] + ids + [self.encoder[config.SpecialTokens.EOS]]
+            if verbose:
+                print(f"Warning: Added BOS and EOS tokens, total length is now {len(ids)}.")
+        if config.SpecialTokens.PAD in self.special_tokens:
+            ids = ids + (max_seq_length - len(ids)) * [self.encoder[config.SpecialTokens.PAD]]
+            if verbose:
+                print(f"Warning: Added PAD tokens, total length is now {len(ids)}.")
 
         return ids
 

@@ -14,9 +14,9 @@ class DatasetLoader:
     def __init__(self, dataset_type=config.DATASET, 
                 img_height=config.IMG_HEIGHT, 
                 img_width=config.IMG_WIDTH, 
-                batch_size_train=config.BATCH_SIZE,
-                batch_size_val=config.BATCH_SIZE,
-                batch_size_test=config.BATCH_SIZE,
+                batch_size_train=config.BATCH_SIZE_TRAIN,
+                batch_size_val=config.BATCH_SIZE_VAL,
+                batch_size_test=config.BATCH_SIZE_TEST,
                 split_ratio=config.SPLIT_RATIO,
                 shuffle_train=True,
                 shuffle_val=False,
@@ -40,26 +40,22 @@ class DatasetLoader:
         self.shuffle_test = shuffle_test
         self.seed = seed
         
-        self.train_compose = transforms.Compose(
+        self.tf_compose = transforms.Compose(
             [
                 transforms.Resize(size=[img_height, img_width], interpolation=transforms.InterpolationMode.BILINEAR, max_size=None, antialias=None),
                 transforms.ToTensor(),
-            ]
-        )
-        self.test_compose = transforms.Compose(
-            [
-                transforms.Resize(size=[img_height, img_width], interpolation=transforms.InterpolationMode.BILINEAR, max_size=None, antialias=None),
-                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ]
         )
     
     # @staticmethod
     def _transforms(self, examples):
-        examples["pixel_values"] = [self.train_compose(image.convert("RGB")) for image in examples["pixel_values"]]
+        examples["pixel_values"] = [self.tf_compose(image.convert("RGB")) for image in examples["pixel_values"]]
         examples["description"] = [desc[0].strip() if len(desc) > 1 else desc for desc in examples["description"]] # TODO: remove after testing
 
         return examples
     
+    # TODO?
     def _transforms_coco(self, examples):
         # leave only one caption per image for simplicity and strip of trailing spaces/newlines
         examples["description"] = [desc[0].strip() for desc in examples["description"]]
@@ -73,6 +69,8 @@ class DatasetLoader:
             dataset = self._load_docci_iiw()
         elif self.dataset_type == config.Dataset.COCO:
             dataset = self._load_coco()
+        elif self.dataset_type == config.Dataset.FLICKR:
+            dataset = self._load_flickr()
         else:
             raise ValueError("Unsupported dataset type")
 
@@ -134,12 +132,62 @@ class DatasetLoader:
 
         return dataset
     
+    def _load_flickr(self):
+        print("Loading Flickr30k dataset...")
+
+        dataset = load_dataset("nlphuji/flickr30k")
+        dataset = dataset.remove_columns(['sentids', 'split', 'img_id', 'filename'])
+        dataset = dataset.rename_column("caption", "description")
+        
+        # split dataset['test'] into train and test as 80/20
+        dataset = dataset['test'].train_test_split(test_size=self.split_ratio, seed=self.seed)
+                
+        return dataset
+    
     def get_train_dataloader(self):
         return self.train_dataloader
     
     def get_test_dataloader(self):
         return self.test_dataloader
+    
+    def get_max_description_length_in_tokens_train(self, tokenizer, max_sequence_length):
+        max_length = 0
+        for batch in self.train_dataloader:
+            samples = batch['description']
+            for sample in samples:
+                tokenized = tokenizer.encode(sample, max_seq_length=max_sequence_length, verbose=False)
+                desc_length = len(tokenized)
+                if desc_length > max_length:
+                    max_length = desc_length
+        return max_length
+    
+    def get_max_description_length_in_tokens_test(self, tokenizer, max_sequence_length):
+        max_length = 0
+        for batch in self.test_dataloader:
+            samples = batch['description']
+            for sample in samples:
+                tokenized = tokenizer.encode(sample, max_seq_length=max_sequence_length, verbose=False)
+                desc_length = len(tokenized)
+                if desc_length > max_length:
+                    max_length = desc_length
+        return max_length
 
+    def get_max_description_length_in_tokens(self, tokenizer, max_sequence_length, descriptions=None):
+        if descriptions is not None:
+            max_length = self.get_max_description_length_in_tokens_train(tokenizer, max_sequence_length)
+            test_max_length = self.get_max_description_length_in_tokens_test(tokenizer, max_sequence_length)
+            if test_max_length > max_length:
+                max_length = test_max_length
+        else:
+            max_length = 0
+            for desc in descriptions:
+                tokenized = tokenizer.encode(desc, max_seq_length=max_sequence_length, verbose=False)
+                desc_length = len(tokenized)
+                if desc_length > max_length:
+                    max_length = desc_length
+        return max_length
+
+    # length is measured in characters
     def get_max_description_length_train(self):
         max_length = 0
         for batch in self.train_dataloader:
@@ -150,6 +198,7 @@ class DatasetLoader:
                     max_length = desc_length
         return max_length
 
+    # length in measured in characters
     def get_max_description_length_test(self):
         max_length = 0
         for batch in self.test_dataloader:

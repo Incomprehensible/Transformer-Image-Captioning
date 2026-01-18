@@ -1,10 +1,19 @@
 import json
 import os
+import pickle
 import re
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 from collections import Counter
 import sys
+
+from tokenizers import Tokenizer
 import config
+
+import transformers
+import warnings
+import torch
+
+from tokenizers.processors import TemplateProcessing
 
 sys.path.append("..")
 
@@ -43,6 +52,7 @@ class ByteLevelBPE:
         special_tokens_dict = {
             self.special_tokens[i]: i for i in range(len(self.special_tokens))
         }
+        print('special_tokens_dict:', special_tokens_dict)
 
         word_freqs = Counter()
 
@@ -147,52 +157,111 @@ class ByteLevelBPE:
 
         return bpe_tokens
 
+    # max_seq_length <= 0 means no truncation/padding
+    # returns a dictionary with 'input_ids' and 'attention_mask' as keys
     def encode(
         self,
         text: str,
         max_seq_length: int,
         verbose: bool = False
-    ) -> List[int]:
+    ) -> Dict[str, torch.Tensor]:
 
         tokens = self.tokenize(text)
         ids = [self.encoder.get(token, 0) for token in tokens]
 
-        if len(ids) > max_seq_length:
+        if max_seq_length > 0 and len(ids) > max_seq_length:
             ids = ids[:max_seq_length]
             if verbose:
                 print(f"Warning: input text truncated to {max_seq_length} tokens.")
         if config.SpecialTokens.BOS and config.SpecialTokens.EOS in self.special_tokens:
-            if len(ids) > max_seq_length - 2:
+            if max_seq_length > 0 and len(ids) > max_seq_length - 2:
                 ids = ids[:-2]
             ids = [self.encoder[config.SpecialTokens.BOS]] + ids + [self.encoder[config.SpecialTokens.EOS]]
             if verbose:
                 print(f"Warning: Added BOS and EOS tokens, total length is now {len(ids)}.")
-        if config.SpecialTokens.PAD in self.special_tokens:
+        if max_seq_length > 0 and config.SpecialTokens.PAD in self.special_tokens:
             ids = ids + (max_seq_length - len(ids)) * [self.encoder[config.SpecialTokens.PAD]]
             if verbose:
                 print(f"Warning: Added PAD tokens, total length is now {len(ids)}.")
 
-        return ids
+        output = {'input_ids': torch.tensor(ids, dtype=torch.long)}
+        if max_seq_length > 0:
+            attention_mask = [1 if id != self.encoder.get(config.SpecialTokens.PAD, -1) else 0 for id in ids]
+            output['attention_mask'] = torch.tensor(attention_mask, dtype=torch.long)
+        else:
+            output['attention_mask'] = torch.tensor([1]*len(ids), dtype=torch.long)
+        return output
+    
+    def encode_batched(
+        self,
+        texts: List[str],
+        max_seq_length: int,
+        padding: bool = True,
+        verbose: bool = False
+    ) -> Dict[str, torch.Tensor]:
 
-    def decode(self, ids: List[int]) -> str:
+        batch_input_ids = []
+        batch_attention_mask = []
+
+        for text in texts:
+            encoded = self.encode(text, max_seq_length, verbose)
+            input_ids = encoded['input_ids'].tolist()
+            attention_mask = encoded['attention_mask'].tolist()
+            batch_input_ids.append(input_ids)
+            batch_attention_mask.append(attention_mask)
+
+        return {
+            'input_ids': torch.tensor(batch_input_ids, dtype=torch.long),
+            'attention_mask': torch.tensor(batch_attention_mask, dtype=torch.long)
+        }
+    
+    def decode(self, ids) -> str:
+        if isinstance(ids, torch.Tensor):
+            ids = ids.tolist()
         tokens = []
 
         for token_id in ids:
-            token_str = self.decoder.get(token_id, "")
-            if token_str in self.special_tokens:
-                continue
+            token_str = self.decoder.get(token_id, '')
             tokens.append(token_str)
 
-        text = "".join(tokens)
+        text = ''.join(tokens)
         byte_list = bytearray()
 
         for char in text:
             if char in self.byte_decoder:
                 byte_list.append(self.byte_decoder[char])
             else:
-                byte_list.append(ord("?"))
+                byte_list.append(ord('?'))
 
-        return byte_list.decode("utf-8", errors="replace")
+        return byte_list.decode('utf-8', errors='replace')
+
+    def decode_batched(self, batch_ids) -> List[str]:
+        if isinstance(batch_ids, torch.Tensor):
+            batch_ids = batch_ids.tolist()
+        decoded_texts = []
+        for ids in batch_ids:
+            decoded_texts.append(self.decode(ids))
+        return decoded_texts
+
+    # def decode(self, ids: List[int]) -> str:
+    #     tokens = []
+    #
+    #     for token_id in ids:
+    #         token_str = self.decoder.get(token_id, "")
+    #         if token_str in self.special_tokens:
+    #             continue
+    #         tokens.append(token_str)
+    #
+    #     text = "".join(tokens)
+    #     byte_list = bytearray()
+    #
+    #     for char in text:
+    #         if char in self.byte_decoder:
+    #             byte_list.append(self.byte_decoder[char])
+    #         else:
+    #             byte_list.append(ord("?"))
+    #
+    #     return byte_list.decode("utf-8", errors="replace")
 
     def token_to_id(self, token: str) -> int:
         return self.encoder.get(token, 0)
@@ -251,14 +320,89 @@ class ByteLevelBPE:
         self.bpe_ranks = {pair: i for i, pair in enumerate(merges)}
         self.cache = {}
 
-    @property
-    def vocab_size(self) -> int:
+    def get_vocab_size(self) -> int:
         return len(self.encoder)
 
     def __repr__(self) -> str:
-        return f"ByteLevelBPE(vocab_size={self.vocab_size})"
+        return f"ByteLevelBPE(vocab_size={self.get_vocab_size()})"
+    
+class TokenizerHF:
 
+    def __init__(self, tokenizer_name = "gpt2") -> None:
+        # https://discuss.huggingface.co/t/gpt2tokenizer-not-putting-bos-eos-token/27394/2
+        bos = config.SpecialTokens.BOS.value
+        eos = config.SpecialTokens.EOS.value
+        pad = config.SpecialTokens.PAD.value
+        special_tokens_dict = {'eos_token': eos, 'bos_token': bos, 'pad_token': pad}
+        print("Initializing HF Tokenizer with special tokens:", special_tokens_dict)
+
+        tokenizer_orig = transformers.AutoTokenizer.from_pretrained(tokenizer_name) # transformer library
+        tokenizer_orig.add_special_tokens(special_tokens_dict) # with this, you don't have to manually define the new tokens' ids
+        tokenizer = Tokenizer.from_pretrained(tokenizer_name) # tokenizer library
+        tokenizer.post_processor = TemplateProcessing(
+            single=bos + " $A " + eos,
+            special_tokens=[(eos, tokenizer_orig.eos_token_id), (bos, tokenizer_orig.bos_token_id)],
+        )
+        self.tokenizer = transformers.GPT2TokenizerFast(tokenizer_object=tokenizer) #transformer library again but now with post processing
+        self.tokenizer.add_special_tokens(special_tokens_dict)
+        self.vocab_size = self.tokenizer.vocab_size + 3
+        self.pad_token_id = self.tokenizer.convert_tokens_to_ids(pad) #self.tokenizer.convert_tokens_to_ids(config.SpecialTokens.PAD.value)
+        print(f"HF Tokenizer initialized with vocab size: {self.vocab_size}, pad_token_id: {self.pad_token_id}")
+
+    def token_to_id(self, token: str) -> int:
+        return self.tokenizer.convert_tokens_to_ids(token)
+
+    # returns a dictionary with 'input_ids' and 'attention_mask' as keys
+    def encode_batched(self, text: List[str], max_seq_length: int, padding=True, verbose=False) -> Dict[str, torch.Tensor]:
+        return self.tokenizer(text, max_length=max_seq_length, padding='max_length' if padding else True, 
+                              return_tensors='pt', truncation=True)
+    
+    def encode(self, text: str, max_seq_length: int, verbose: bool = False) -> Dict[str, torch.Tensor]:
+        return self.tokenizer(text, max_length=max_seq_length, padding='max_length', 
+                              return_tensors='pt', truncation=True)
+        
+    def decode(self, token_ids) -> str:
+        if isinstance(token_ids, torch.Tensor):
+            token_ids = token_ids.tolist()
+        return self.tokenizer.decode(token_ids, skip_special_tokens=False)
+    
+    def decode_batched(self, token_ids) -> List[str]:
+        if isinstance(token_ids, torch.Tensor):
+            token_ids = token_ids.tolist()
+        return self.tokenizer.batch_decode(token_ids, skip_special_tokens=False)
+    
+    def tokenize(self, text: str) -> List[str]:
+        return self.tokenizer.tokenize(text)
+    
+    def strip(self, text: str) -> str:
+        pattern = "|".join(re.escape(t) for t in [config.SpecialTokens.PAD, config.SpecialTokens.BOS, config.SpecialTokens.EOS])
+        return re.sub(pattern, "", text).strip()
+
+    def get_padding_token_id(self):
+        return self.pad_token_id
+
+    def get_vocab(self):
+        return self.tokenizer.get_vocab()
+    
+    def save(self, folder: str, filename_prefix: str = "hf_tokenizer"):
+        os.makedirs(folder, exist_ok=True)
+        file_path = os.path.join(folder, f"vocab_{filename_prefix}.pkl")
+        with open(file_path, "wb") as f:
+            pickle.dump(self, f)
+    
+    @staticmethod
+    def load(folder: str, filename_prefix: str = "hf_tokenizer"):
+        file_path = os.path.join(folder, f"vocab_{filename_prefix}.pkl")
+        with open(file_path, "rb") as f:
+            return pickle.load(f)
+    
+    def get_vocab_size(self) -> int:
+        return self.vocab_size
 
 if __name__ == "__main__":
-    tokenizer = ByteLevelBPE()
-    print("Created tokenizer:", tokenizer)
+    if config.TOKENIZER_TYPE == 'hf':
+        tokenizer = TokenizerHF(tokenizer_name="gpt2")
+        print("Created HF tokenizer:", tokenizer)
+    else:
+        tokenizer = ByteLevelBPE()
+        print("Created tokenizer:", tokenizer)

@@ -1,3 +1,4 @@
+from typing import List
 import numpy as np
 import matplotlib.pyplot as plt
 import random
@@ -253,7 +254,7 @@ class EmbeddingProjection(torch.nn.Module):
 # Full transformer
 
 class CPTR(torch.nn.Module):
-    def __init__(self, num_patches=(config.IMG_HEIGHT//config.PATCH_SIZE)*(config.IMG_WIDTH//config.PATCH_SIZE),
+    def __init__(self, vocab_size, num_patches=(config.IMG_HEIGHT//config.PATCH_SIZE)*(config.IMG_WIDTH//config.PATCH_SIZE),
                  use_embedding_projection=config.USE_PROJECTION_LAYER,
                  img_emb_use_conv=config.USE_CONV_IMG_EMBEDDING,
                  img_emb_dim=config.IMG_EMBEDDING_DIM, 
@@ -266,7 +267,6 @@ class CPTR(torch.nn.Module):
                  text_emb_dim=config.TEXT_EMBEDDING_DIM,
                  d_model=config.EMBEDDING_DIM,
                  max_text_seq_len=config.MAX_TEXT_SEQUENCE_LENGTH,
-                 vocab_size=config.TEXT_VOCAB_SIZE,
                  pad_idx=0,
                  num_decoder_blocks=config.DECODER_NUM_BLOCKS,
                  num_decoder_heads=config.DECODER_NUM_HEADS,
@@ -357,6 +357,30 @@ class CPTR(torch.nn.Module):
         text_features = self.forward_text(text_tokens, img_features, attn_mask, pad_mask) # Q
         logits = self.linear(text_features)
         return logits
+
+    @torch.inference_mode()
+    def generate(self, 
+                 image: torch.Tensor, 
+                 bos_token: int,
+                 eos_token: int,
+                 max_len: int,
+                 device: torch.device) -> List[int]:
+
+        img_features = self.forward_images(image)
+
+        tokens = torch.tensor(data=[[bos_token]], requires_grad=False).to(device)
+        attn_mask = torch.triu(torch.ones((1, 1), device=device, requires_grad=False), diagonal=1).bool()
+
+        while tokens.shape[1] < max_len and tokens[0, -1] != eos_token:
+            text_features = self.forward_text(tokens, img_features, attn_mask, None) # Q
+            logits = self.linear(text_features)
+            next_token = torch.argmax(logits[0, -1, :], dim=0).item()
+            tokens = torch.cat(
+                (tokens, torch.tensor([[next_token]], requires_grad=False).to(device)),
+                dim = -1
+            ).to(device)
+            attn_mask = torch.triu(torch.ones((tokens.shape[1], tokens.shape[1]), device=device, requires_grad=False), diagonal=1).bool()
+        return list(tokens[0])
 
     def forward_debug(self, images, text_tokens, attn_mask=None, pad_mask=None):
         img_features = self.forward_images(images) # K, V from encoder

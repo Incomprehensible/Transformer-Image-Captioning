@@ -123,12 +123,7 @@ class DatasetLoader:
         dataset = dataset.rename_column("answer", "description")
         
         # split dataset['val] into train and test as 80/20
-        dataset_test = dataset['val'] # without captions
         dataset = dataset['val'].train_test_split(test_size=self.split_ratio, seed=self.seed)
-        dataset['val'] = dataset_test
-        
-        # dataset['train'] = dataset['train'].map(self._transforms_coco, batched=False)
-        # dataset['test'] = dataset['test'].map(self._transforms_coco, batched=True)
 
         return dataset
     
@@ -138,6 +133,7 @@ class DatasetLoader:
         dataset = load_dataset("nlphuji/flickr30k")
         dataset = dataset.remove_columns(['sentids', 'split', 'img_id', 'filename'])
         dataset = dataset.rename_column("caption", "description")
+        print(dataset)
         
         # split dataset['test'] into train and test as 80/20
         dataset = dataset['test'].train_test_split(test_size=self.split_ratio, seed=self.seed)

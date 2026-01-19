@@ -2,11 +2,12 @@ import pathlib
 import json
 from enum import Enum
 
+# Folder structure
 CONFIG_ROOT = pathlib.Path(__file__).parent.resolve()
-
 TOKENIZER_DATA_PATH = CONFIG_ROOT / 'tokenizer_data'
 
-SPLIT_RATIO = 0.8
+# Dataset config
+SPLIT_RATIO = 0.2
 RANDOM_SEED = 42
 
 class Dataset(str, Enum):
@@ -27,21 +28,17 @@ class TokenizerType(str, Enum):
     BPE = 'bpe'
     HF = 'hf'
 
-TOKENIZER_TYPE = TokenizerType.HF
+TOKENIZER_TYPE = TokenizerType.BPE
 # Upper bound on vocab size during tokenizer training
-UNIQUE_WORD_COUNT = 20538 # Estimation count of unique words in the dataset
+if DATASET == Dataset.COCO:
+    UNIQUE_WORD_COUNT = 7000 # TODO: check
+elif DATASET == Dataset.FLICKR:
+    UNIQUE_WORD_COUNT = 21000 # Estimation count of unique words in the dataset
+elif DATASET == Dataset.DOCCI:
+    UNIQUE_WORD_COUNT = 12000 # TODO
 
 TOKENIZER_TRAIN_VOCAB_SIZE = UNIQUE_WORD_COUNT + SpecialTokens.__members__.__len__()
 TOKENIZER_FILENAME_PREFIX = f'bpe_tokenizer_{DATASET}'
-
-class EncoderArch(str, Enum):
-    RESNET50 = 'resnet50'
-    VIT_BASE_PATCH16_224 = 'vit-base-patch16-224'
-    VIT_LARGE_PATCH16_224 = 'vit-large-patch16-224'
-    CUSTOM_VIT_STYLE = 'custom-vit-style'
-    # CUSTOM_SHOW_AND_TELL_STYLE = 'custom-show-attend-tell'
-
-ENCODER_ARCH = EncoderArch.CUSTOM_VIT_STYLE # TODO
 
 class MaxSeqLengthStrategy(str, Enum):
     MAX = 'max'
@@ -81,6 +78,27 @@ else:
 # EVAL_DATASET_INFO_PATH= 'imageinwords/datasets' # TODO
 # EVAL_DATASET_SPLIT='IIW-400'
 
+# Model config
+
+# Encoder architecture options
+class EncoderArch(str, Enum):
+    CUSTOM_CPTR_STYLE = 'custom-cptr-style'
+    CNN_RESNET50 = 'resnet50'
+    VIT_STYLE_BASE = 'google/vit-base-patch16-224-in21k'
+    VIT_STYLE_LARGE = 'google/vit-large-patch16-224-in21k'
+    CNN_CPTR_STYLE = 'cnn-cptr-style'
+    # CUSTOM_SHOW_AND_TELL_STYLE = 'custom-show-attend-tell'
+
+ENCODER_ARCH = EncoderArch.VIT_STYLE_BASE
+
+class ViTEncodingStrategy(str, Enum):
+    PATCHES = 'last_hidden_state_patches'
+    CLS_TOKEN = 'cls_token'
+
+# if ENCODER_ARCH == EncoderArch.VIT_STYLE_BASE or ENCODER_ARCH == EncoderArch.VIT_STYLE_LARGE:
+VIT_ENCODING_STRATEGY = ViTEncodingStrategy.PATCHES
+
+# Model hyperparameters
 NUM_INPUT_CHANNELS = 3
 
 # include bias in linear layers, except for last linear layer if weight tying is used
@@ -90,7 +108,18 @@ IMG_HEIGHT = 224
 IMG_WIDTH = 224
 PATCH_SIZE = 16
 NUM_PATCHES = (IMG_HEIGHT // PATCH_SIZE) * (IMG_WIDTH // PATCH_SIZE)
-IMG_EMBEDDING_DIM = PATCH_SIZE**2 * NUM_INPUT_CHANNELS # doesn't need to be same as TEXT_EMBEDDING_DIM due to projection layer
+
+if ENCODER_ARCH == EncoderArch.CUSTOM_CPTR_STYLE or ENCODER_ARCH == EncoderArch.CNN_CPTR_STYLE:
+    IMG_EMBEDDING_DIM = PATCH_SIZE**2 * NUM_INPUT_CHANNELS # doesn't need to be same as TEXT_EMBEDDING_DIM due to projection layer
+elif ENCODER_ARCH == EncoderArch.CNN_RESNET50:
+    IMG_EMBEDDING_DIM = 2048  # ResNet-50 final feature map channels
+elif ENCODER_ARCH == EncoderArch.VIT_STYLE_BASE:
+    IMG_EMBEDDING_DIM = 768
+elif ENCODER_ARCH == EncoderArch.VIT_STYLE_LARGE:
+    IMG_EMBEDDING_DIM = 1024
+else:
+    IMG_EMBEDDING_DIM = 512  # default
+
 USE_CONV_IMG_EMBEDDING = True
 
 # text vocab size will be taken from tokenizer
@@ -111,15 +140,16 @@ DECODER_NUM_BLOCKS = 8
 DECODER_NUM_HEADS = 8
 DECODER_HIDDEN_DIM = EMBEDDING_DIM * 4
 DECODER_DROPOUT_PROB = 0.1
+SUBLAYER_DROPOUT = False
 
-BATCH_SIZE_TRAIN = 16
+BATCH_SIZE_TRAIN = 24
 BATCH_SIZE_VAL = 1
-BATCH_SIZE_TEST = 1
-NUM_EPOCHS = 100
-SUBLAYER_DROPOUT = True
-LR = 2e-4
+BATCH_SIZE_TEST = 16
+NUM_FREEZE_EPOCHS = 5
+NUM_EPOCHS = 1
+LR = 3e-4
 WEIGHT_DECAY = 0.01
-LABEL_SMOOTHING = 0.03 # 0.05
+LABEL_SMOOTHING = 0.05
 
 # Params from CPTR paper:
 # BATCH_SIZE         = 1              #(1)

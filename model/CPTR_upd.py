@@ -8,6 +8,10 @@ import torch.nn.functional as F
 from torchvision import transforms
 from torch.utils.data import DataLoader
 
+import torchvision.models as models
+from torchvision.models import ResNet50_Weights
+from transformers import ViTModel
+
 import config
 
 from tokenizer import ByteLevelBPE
@@ -79,9 +83,9 @@ class LearnablePositionalEmbedding(torch.nn.Module):
     def forward(self):
         return self.pos_embedding
 
-class EncoderBlock(torch.nn.Module):
+class CPTREncoderBlock(torch.nn.Module):
     def __init__(self, embed_dim=config.IMG_EMBEDDING_DIM, num_heads=config.ENCODER_NUM_HEADS, hidden_dim=config.ENCODER_HIDDEN_DIM, dropout_prob=config.ENCODER_DROPOUT_PROB, bias=config.USE_BIAS, sublayer_dropout=config.SUBLAYER_DROPOUT):
-        super(EncoderBlock, self).__init__()
+        super(CPTREncoderBlock, self).__init__()
         self.MHSA = torch.nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True, dropout=dropout_prob, bias=bias)
         self.layer_norm_1 = torch.nn.LayerNorm(embed_dim)
         self.FFN = torch.nn.Sequential(
@@ -106,18 +110,97 @@ class EncoderBlock(torch.nn.Module):
         x = self.layer_norm_2(x + ff_output)
         return x
 
-# takes patches after linear projection and positional encoding
-class Encoder(torch.nn.Module):
-    def __init__(self, num_blocks=config.ENCODER_NUM_BLOCKS, embed_dim=config.IMG_EMBEDDING_DIM, num_heads=config.ENCODER_NUM_HEADS, hidden_dim=config.ENCODER_HIDDEN_DIM, dropout_prob=config.ENCODER_DROPOUT_PROB, bias=config.USE_BIAS, sublayer_dropout=config.SUBLAYER_DROPOUT):
-        super(Encoder, self).__init__()
+class CPTREncoder(torch.nn.Module):
+    def __init__(self, img_emb_use_conv=config.USE_CONV_IMG_EMBEDDING,
+                 img_emb_dim=config.IMG_EMBEDDING_DIM, 
+                 patch_size=config.PATCH_SIZE, 
+                 channels=config.NUM_INPUT_CHANNELS,
+                 num_patches=config.NUM_PATCHES,
+                 num_blocks=config.ENCODER_NUM_BLOCKS, 
+                 embed_dim=config.IMG_EMBEDDING_DIM, 
+                 num_heads=config.ENCODER_NUM_HEADS, 
+                 hidden_dim=config.ENCODER_HIDDEN_DIM, 
+                 dropout_prob=config.ENCODER_DROPOUT_PROB, 
+                 bias=config.USE_BIAS, 
+                 sublayer_dropout=config.SUBLAYER_DROPOUT):
+        
+        super(CPTREncoder, self).__init__()
+        
+        # image side
+        if img_emb_use_conv:
+            self.patcher = ConvPatcher(emb_dim=img_emb_dim, patch_size=patch_size, channels=channels, bias=bias, visualize_patches=False)
+        else:
+            self.patcher = Patcher(patch_size=patch_size, channels=channels, emb_dim=img_emb_dim, bias=bias)
+        self.img_pos_embedding = LearnablePositionalEmbedding(num_patches=num_patches, emb_dim=img_emb_dim)
+        
         self.encoder_blocks = torch.nn.ModuleList()
         for _ in range(num_blocks):
-            self.encoder_blocks.append(EncoderBlock(embed_dim=embed_dim, num_heads=num_heads, hidden_dim=hidden_dim, dropout_prob=dropout_prob, bias=bias, sublayer_dropout=sublayer_dropout))
+            self.encoder_blocks.append(CPTREncoderBlock(embed_dim=embed_dim, 
+                                                        num_heads=num_heads, 
+                                                        hidden_dim=hidden_dim, 
+                                                        dropout_prob=dropout_prob, 
+                                                        bias=bias, 
+                                                        sublayer_dropout=sublayer_dropout))
+        if sublayer_dropout:
+            self.sublayer_dropout = torch.nn.Dropout(p=dropout_prob)
 
     def forward(self, x):
+        patches = self.patcher(x)
+        pos_emb = self.img_pos_embedding()
+        x = patches + pos_emb
+        
+        if hasattr(self, 'sublayer_dropout'):
+            x = self.sublayer_dropout(x)
+        
         for block in self.encoder_blocks:
             x = block(x)
         return x
+
+class CNNEncoder(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        # Load pre-trained ResNet50
+        resnet = models.resnet50(weights=ResNet50_Weights.DEFAULT)
+        
+        # Remove the last two layers (Global Avg Pool and FC layer)
+        # We want the 4th layer output (2048 channels)
+        self.backbone = torch.nn.Sequential(*list(resnet.children())[:-2])
+        
+        # ResNet50 output is [B, 2048, 7, 7] for a 224x224 image.
+        # We need to project 2048 to your d_model (768)
+        # self.projection = torch.nn.Linear(2048, d_model)
+        
+    def forward(self, x):
+        # x: [B, 3, 224, 224]
+        with torch.no_grad(): # Optional: Freeze backbone to save memory/time
+            features = self.backbone(x) # [B, 2048, 7, 7]
+        
+        # Flatten the grid into a sequence of patches
+        B, C, H, W = features.shape
+        features = features.view(B, C, H * W).permute(0, 2, 1) # [B, 49, 2048]
+        
+        # Project to d_model
+        # return self.projection(features) # [B, 49, 768]
+        return features # [B, 49, 2048]
+
+class ViTEncoder(torch.nn.Module):
+    def __init__(self, model_patch: str, encoding_strategy = config.VIT_ENCODING_STRATEGY):
+        super().__init__()
+        self.vit = ViTModel.from_pretrained(model_patch)
+        
+        # remove the classification head
+        self.vit.heads = torch.nn.Identity()
+
+    def forward(self, x):
+        # x: [B, 3, 224, 224]
+        outputs = self.vit(x)
+        # last_hidden_state: [Batch, 197, 768] (1 CLS + 196 patches)
+        if config.VIT_ENCODING_STRATEGY == config.ViTEncodingStrategy.CLS_TOKEN:
+            features = outputs.last_hidden_state[:, 0, :] # CLS token
+            # features = features[:, None, :]
+        else:
+            features = outputs.last_hidden_state[:, 1:, :] # # [B, 196, 768]
+        return features
 
 # ==========================================================
 # Decoder side
@@ -187,13 +270,13 @@ class DecoderBlock(torch.nn.Module):
             print(f'DecoderBlock initialized with embed_dim={embed_dim}, num_heads={num_heads}, hidden_dim={hidden_dim}, dropout_prob={dropout_prob}, bias={bias}')
 
     # encoder output tensor will be passed as the key and value
-    def forward(self, x, k, v, attn_mask, pad_mask):
+    def forward(self, x, kv, attn_mask, pad_mask):
         if x.ndim != 3:
             raise ValueError(f'Input tensor x must have 3 dimensions (batch_size, seq_length, embed_dim), but got {x.ndim} dimensions.')
         
         if self.verbose:
             print('Q shape:', x.shape)
-            print('K shape:', k.shape)
+            print('K/V shape:', kv.shape)
         attn_output, mmhsa_w = self.MMHSA(query=x, key=x, value=x, attn_mask=attn_mask, key_padding_mask=pad_mask)
         # print('Masked Multi-Head Self-Attention weights shape:', mmhsa_w.shape)
         
@@ -202,7 +285,7 @@ class DecoderBlock(torch.nn.Module):
             attn_output = self.sublayer_dropout(attn_output)
             
         x = self.layer_norm_1(x + attn_output) # TODO: debug cross attention, and text vs img embeddings as inputs
-        attn_output, mhca_w = self.MHCA(query=x, key=k, value=v)
+        attn_output, mhca_w = self.MHCA(query=x, key=kv, value=kv)
         # print('Cross Attention weights shape:', mhca_w.shape)
         
         if hasattr(self, 'sublayer_dropout'):
@@ -224,15 +307,53 @@ class DecoderBlock(torch.nn.Module):
         return x
 
 class Decoder(torch.nn.Module):
-    def __init__(self, num_blocks=config.DECODER_NUM_BLOCKS, embed_dim=config.EMBEDDING_DIM, num_heads=config.DECODER_NUM_HEADS, hidden_dim=config.DECODER_HIDDEN_DIM, dropout_prob=config.DECODER_DROPOUT_PROB, bias=config.USE_BIAS, sublayer_dropout=config.SUBLAYER_DROPOUT, verbose=False):
+    def __init__(self, vocab_size,
+                 text_emb_dim=config.TEXT_EMBEDDING_DIM,
+                 d_model=config.EMBEDDING_DIM,
+                 max_text_seq_len=config.MAX_TEXT_SEQUENCE_LENGTH,
+                 pad_idx=0,
+                 decoder_dropout_prob=config.DECODER_DROPOUT_PROB,
+                 num_blocks=config.DECODER_NUM_BLOCKS, 
+                 embed_dim=config.EMBEDDING_DIM, 
+                 num_heads=config.DECODER_NUM_HEADS, 
+                 hidden_dim=config.DECODER_HIDDEN_DIM, 
+                 dropout_prob=config.DECODER_DROPOUT_PROB, 
+                 bias=config.USE_BIAS, 
+                 sublayer_dropout=config.SUBLAYER_DROPOUT, 
+                 verbose=False):
+        
         super(Decoder, self).__init__()
+        
+        self.word_embedding = LearnableWordEmbedding(vocab_size=vocab_size, emb_dim=text_emb_dim, padding_idx=pad_idx)
+        self.text_pos_embedding = SinusoidPositionalEncoding(max_seq_len=max_text_seq_len, emb_dim=d_model)
+        
+        assert d_model == text_emb_dim, f"In this implementation, d_model ({d_model}) must be equal to text_emb_dim ({text_emb_dim})"
+        
+        self.scaling = float(math.sqrt(d_model))
+        self.text_layernorm = torch.nn.LayerNorm(d_model)
+        self.text_dropout = torch.nn.Dropout(p=decoder_dropout_prob)
+        
         self.decoder_blocks = torch.nn.ModuleList()
         for _ in range(num_blocks):
-            self.decoder_blocks.append(DecoderBlock(embed_dim=embed_dim, num_heads=num_heads, hidden_dim=hidden_dim, dropout_prob=dropout_prob, bias=bias, sublayer_dropout=sublayer_dropout, verbose=verbose))
+            self.decoder_blocks.append(DecoderBlock(embed_dim=embed_dim, 
+                                                    num_heads=num_heads, 
+                                                    hidden_dim=hidden_dim, 
+                                                    dropout_prob=dropout_prob, 
+                                                    bias=bias, 
+                                                    sublayer_dropout=sublayer_dropout, 
+                                                    verbose=verbose))
 
-    def forward(self, x, enc_output, attn_mask, pad_mask):
+    def forward(self, text_tokens, enc_output, attn_mask, pad_mask):
+        # ensure batch dimension
+        if text_tokens.ndim < 2:
+            text_tokens = text_tokens.unsqueeze(0)
+        
+        embeddings = self.word_embedding(text_tokens) * self.scaling # (B, L) -> (B, L, D)
+        emb_sum = self.text_layernorm(embeddings + self.text_pos_embedding(embeddings))
+        x = self.text_dropout(emb_sum)
+        
         for block in self.decoder_blocks:
-            x = block.forward(x, k=enc_output, v=enc_output, attn_mask=attn_mask, pad_mask=pad_mask)
+            x = block.forward(x=x, kv=enc_output, attn_mask=attn_mask, pad_mask=pad_mask)
         return x
 
 # ==========================================================
@@ -260,6 +381,7 @@ class EmbeddingProjection(torch.nn.Module):
 class CPTR(torch.nn.Module):
     def __init__(self, vocab_size,
                  encoder_arch=config.ENCODER_ARCH,
+                 encoding_strategy=None,
                  num_patches=(config.IMG_HEIGHT//config.PATCH_SIZE)*(config.IMG_WIDTH//config.PATCH_SIZE),
                  use_embedding_projection=config.USE_PROJECTION_LAYER,
                  img_emb_use_conv=config.USE_CONV_IMG_EMBEDDING,
@@ -282,45 +404,63 @@ class CPTR(torch.nn.Module):
                  use_weight_tying=config.USE_WEIGHT_TYING,
                  sublayer_dropout=config.SUBLAYER_DROPOUT,
                  verbose=False):
-        super(CPTR, self).__init__()
         
-        # image side
-        if img_emb_use_conv:
-            self.patcher = ConvPatcher(emb_dim=img_emb_dim, patch_size=patch_size, channels=channels, bias=bias, visualize_patches=False)
+        super(CPTR, self).__init__()
+        self.ignore_index = pad_idx
+        
+        if encoder_arch == config.EncoderArch.CUSTOM_CPTR_STYLE:
+            self.encoder = CPTREncoder(img_emb_use_conv=img_emb_use_conv,
+                                   img_emb_dim=img_emb_dim, 
+                                   patch_size=patch_size, 
+                                   channels=channels,
+                                   num_patches=num_patches,
+                                   num_blocks=num_encoder_blocks, 
+                                   embed_dim=img_emb_dim, 
+                                   num_heads=num_encoder_heads, 
+                                   hidden_dim=encoder_hidden_dim, 
+                                   dropout_prob=encoder_dropout_prob,
+                                   bias=bias,
+                                   sublayer_dropout=sublayer_dropout)
+            print("Initialized CPTR Encoder")
+        elif encoder_arch == config.EncoderArch.CNN_RESNET50:
+            self.encoder = CNNEncoder()
+            print("Initialized CNN ResNet-50 Encoder")
+        elif encoder_arch == config.EncoderArch.VIT_STYLE_BASE or \
+            encoder_arch == config.EncoderArch.VIT_STYLE_LARGE:
+            model_patch = encoder_arch.value
+            self.encoder = ViTEncoder(model_patch=model_patch, encoding_strategy=encoding_strategy)
+            print(f"Initialized ViT Encoder: {model_patch}")
         else:
-            self.patcher = Patcher(patch_size=patch_size, channels=channels, emb_dim=img_emb_dim, bias=bias)
-        self.img_pos_embedding = LearnablePositionalEmbedding(num_patches=num_patches, emb_dim=img_emb_dim)
-        # encoder
-        self.encoder = Encoder(num_blocks=num_encoder_blocks, 
-                               embed_dim=img_emb_dim, 
-                               num_heads=num_encoder_heads, 
-                               hidden_dim=encoder_hidden_dim, 
-                               dropout_prob=encoder_dropout_prob,
-                               bias=bias,
-                               sublayer_dropout=sublayer_dropout)
+            raise ValueError(f"Unsupported encoder architecture: {encoder_arch}")
         
         if use_embedding_projection:
             # projection to shared embedding space
             self.emb_projector = EmbeddingProjection(d_img_emb=img_emb_dim, d_model=d_model, p_dropout=encoder_dropout_prob, bias=bias)
         
-        self.ignore_index = pad_idx
-        
-        # text side
-        self.word_embedding = LearnableWordEmbedding(vocab_size=vocab_size, emb_dim=text_emb_dim, padding_idx=pad_idx)
-        self.text_pos_embedding = SinusoidPositionalEncoding(max_seq_len=max_text_seq_len, emb_dim=d_model)
-        assert d_model == text_emb_dim, f"In this implementation, d_model ({d_model}) must be equal to text_emb_dim ({text_emb_dim})"
-        self.scaling = float(math.sqrt(d_model))
-        self.text_layernorm = torch.nn.LayerNorm(d_model)
-        self.text_dropout = torch.nn.Dropout(p=decoder_dropout_prob)
-        # decoder
-        self.decoder = Decoder(num_blocks=num_decoder_blocks, 
+        self.decoder = Decoder(vocab_size=vocab_size,
+                               text_emb_dim=text_emb_dim,
+                               d_model=d_model,
+                               max_text_seq_len=max_text_seq_len,
+                               pad_idx=pad_idx,
+                               decoder_dropout_prob=decoder_dropout_prob,
+                               num_blocks=num_decoder_blocks, 
                                embed_dim=d_model, 
                                num_heads=num_decoder_heads, 
                                hidden_dim=decoder_hidden_dim, 
                                dropout_prob=decoder_dropout_prob,
                                bias=bias,
                                sublayer_dropout=sublayer_dropout,
-                               verbose=verbose) # TODO: debug attention and masking
+                               verbose=verbose)
+        
+        # final linear + softmax layer
+        # the output of the last decoder is used to predict the next word via a linear layer 
+        # whose output dimension equals to the vocabulary size
+        self.linear = torch.nn.Linear(in_features=d_model, out_features=vocab_size, bias=bias)
+        if use_weight_tying:
+            # W_out ​= W_embed^⊤
+            self.linear.weight = self.decoder.word_embedding.embedding.weight
+        
+        # Apply Xavier initialization to linear layers
         def _init_weights(m):
             if isinstance(m, torch.nn.Linear):
                 torch.nn.init.xavier_uniform_(m.weight)
@@ -329,40 +469,18 @@ class CPTR(torch.nn.Module):
 
         self.apply(_init_weights)
         
-        # final linear + softmax layer
-        # the output of the last decoder is used to predict the next word via a linear layer 
-        # whose output dimension equals to the vocabulary size
-        self.linear = torch.nn.Linear(in_features=d_model, out_features=vocab_size, bias=bias)
-        if use_weight_tying:
-            # W_out ​= W_embed^⊤
-            self.linear.weight = self.word_embedding.embedding.weight # TODO: check dim
-            
         self.softmax = torch.nn.LogSoftmax(dim=-1) # for inference mode # TODO
-
-    def forward_images(self, images): # TODO: debug encoder having grad everywhere and changing
-        patches = self.patcher(images)
-        pos_emb = self.img_pos_embedding()
-        emb = patches + pos_emb
-        output = self.encoder(emb)
-        if hasattr(self, 'emb_projector'): # TODO: enforce same dim
-            output = self.emb_projector(output)
-        # print('Image features shape:', output.shape)
-        # print('Encoder output absolute mean', output.abs().mean()) # Should be around 0.5 - 1.5
-        return output
-
-    def forward_text(self, text_tokens, img_features, attn_mask=None, pad_mask=None):
-        # ensure batch dimension
-        if text_tokens.ndim < 2:
-            text_tokens = text_tokens.unsqueeze(0)
-        embeddings = self.word_embedding(text_tokens) * self.scaling # (B, L) -> (B, L, D)
-        emb_sum = self.text_layernorm(embeddings + self.text_pos_embedding(embeddings))
-        output = self.text_dropout(emb_sum)
-        output = self.decoder(output, img_features, attn_mask, pad_mask) 
-        return output
     
     def forward(self, images, text_tokens, attn_mask=None, pad_mask=None, targets=None):
-        img_features = self.forward_images(images) # K, V from encoder
-        text_features = self.forward_text(text_tokens=text_tokens, img_features=img_features, attn_mask=attn_mask, pad_mask=pad_mask) # Q
+        img_features = self.encoder(images) # K, V from encoder
+        
+        if hasattr(self, 'emb_projector'):
+            img_features = self.emb_projector(img_features)
+            
+        text_features = self.decoder(text_tokens=text_tokens, 
+                                     enc_output=img_features, 
+                                     attn_mask=attn_mask, 
+                                     pad_mask=pad_mask) # Q
         logits = self.linear(text_features)
         
         loss = None
@@ -379,13 +497,16 @@ class CPTR(torch.nn.Module):
                  max_len: int,
                  device: torch.device) -> List[int]:
 
-        img_features = self.forward_images(image)
+        img_features = self.encoder(image)
+        
+        if hasattr(self, 'emb_projector'):
+            img_features = self.emb_projector(img_features)
 
         tokens = torch.tensor(data=[[bos_token]], requires_grad=False).to(device)
         attn_mask = torch.triu(torch.ones((1, 1), device=device, requires_grad=False), diagonal=1).bool()
 
         while tokens.shape[1] < max_len and tokens[0, -1] != eos_token:
-            text_features = self.forward_text(tokens, img_features, attn_mask, None) # Q
+            text_features = self.decoder(text_tokens=tokens, enc_output=img_features, attn_mask=attn_mask, pad_mask=None) # Q
             logits = self.linear(text_features)
             next_token = torch.argmax(logits[0, -1, :], dim=0).item()
             tokens = torch.cat(

@@ -322,6 +322,9 @@ class ByteLevelBPE:
 
     def get_vocab_size(self) -> int:
         return len(self.encoder)
+    
+    def get_vocab(self) -> Dict[str, int]:
+        return self.encoder
 
     def __repr__(self) -> str:
         return f"ByteLevelBPE(vocab_size={self.get_vocab_size()})"
@@ -353,8 +356,8 @@ class TokenizerHF:
         return self.tokenizer.convert_tokens_to_ids(token)
 
     # returns a dictionary with 'input_ids' and 'attention_mask' as keys
-    def encode_batched(self, text: List[str], max_seq_length: int, padding=True, verbose=False) -> Dict[str, torch.Tensor]:
-        return self.tokenizer(text, max_length=max_seq_length, padding='max_length' if padding else True, 
+    def encode_batched(self, texts: List[str], max_seq_length: int, padding=True, verbose=False) -> Dict[str, torch.Tensor]:
+        return self.tokenizer(texts, max_length=max_seq_length, padding='max_length' if padding else True, 
                               return_tensors='pt', truncation=True)
     
     def encode(self, text: str, max_seq_length: int, verbose: bool = False) -> Dict[str, torch.Tensor]:

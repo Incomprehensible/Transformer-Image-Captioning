@@ -51,7 +51,7 @@ class DatasetLoader:
     # @staticmethod
     def _transforms(self, examples):
         examples["pixel_values"] = [self.tf_compose(image.convert("RGB")) for image in examples["pixel_values"]]
-        examples["description"] = [desc[0].strip() if len(desc) > 1 else desc for desc in examples["description"]] # TODO: remove after testing
+        examples["description"] = [desc[0].strip() if isinstance(desc, list) else desc for desc in examples["description"]] # TODO: remove after testing
 
         return examples
     
@@ -108,6 +108,7 @@ class DatasetLoader:
 
         dataset = load_dataset('google/docci', name='docci', trust_remote_code=True, storage_options={'client_kwargs': {'timeout': aiohttp.ClientTimeout(total=10000)}})
         dataset = dataset.remove_columns(["example_id"])
+        print(dataset)
         return dataset
     
     def _load_docci_iiw(self):
@@ -146,12 +147,13 @@ class DatasetLoader:
     def get_test_dataloader(self):
         return self.test_dataloader
     
+    # takes special tokens into account
     def get_max_description_length_in_tokens_train(self, tokenizer, max_sequence_length):
         max_length = 0
         for batch in self.train_dataloader:
             samples = batch['description']
             for sample in samples:
-                tokenized = tokenizer.encode(sample, max_seq_length=max_sequence_length, verbose=False)
+                tokenized = tokenizer.encode(sample, max_seq_length=max_sequence_length, verbose=False)['input_ids']
                 desc_length = len(tokenized)
                 if desc_length > max_length:
                     max_length = desc_length
@@ -162,7 +164,7 @@ class DatasetLoader:
         for batch in self.test_dataloader:
             samples = batch['description']
             for sample in samples:
-                tokenized = tokenizer.encode(sample, max_seq_length=max_sequence_length, verbose=False)
+                tokenized = tokenizer.encode(sample, max_seq_length=max_sequence_length, verbose=False)['input_ids']
                 desc_length = len(tokenized)
                 if desc_length > max_length:
                     max_length = desc_length
@@ -177,7 +179,7 @@ class DatasetLoader:
         else:
             max_length = 0
             for desc in descriptions:
-                tokenized = tokenizer.encode(desc, max_seq_length=max_sequence_length, verbose=False)
+                tokenized = tokenizer.encode(desc, max_seq_length=max_sequence_length, verbose=False)['input_ids']
                 desc_length = len(tokenized)
                 if desc_length > max_length:
                     max_length = desc_length

@@ -184,22 +184,32 @@ class CNNEncoder(torch.nn.Module):
         return features # [B, 49, 2048]
 
 class ViTEncoder(torch.nn.Module):
-    def __init__(self, model_patch: str, encoding_strategy = config.VIT_ENCODING_STRATEGY):
+    def __init__(self, model_patch: str, encoding_strategy = config.VIT_ENCODING_STRATEGY, verbose=False):
         super().__init__()
-        self.vit = ViTModel.from_pretrained(model_patch)
+        self.vit = ViTModel.from_pretrained(model_patch, output_attentions=True, output_hidden_states=False)
         
         # remove the classification head
         self.vit.heads = torch.nn.Identity()
+        
+        self.encoding_strategy = encoding_strategy
+        self.verbose = verbose
 
-    def forward(self, x):
+    def forward(self, x, return_attn=False):
         # x: [B, 3, 224, 224]
         outputs = self.vit(x)
         # last_hidden_state: [Batch, 197, 768] (1 CLS + 196 patches)
-        if config.VIT_ENCODING_STRATEGY == config.ViTEncodingStrategy.CLS_TOKEN:
+        if self.encoding_strategy == config.ViTEncodingStrategy.CLS_TOKEN:
             features = outputs.last_hidden_state[:, 0, :] # CLS token
-            # features = features[:, None, :]
+            features = features[:, None, :]
+            if self.verbose:
+                print(f'ViT Encoder using CLS token with shape: {features.shape}')  # [B, 1, 768]
         else:
             features = outputs.last_hidden_state[:, 1:, :] # # [B, 196, 768]
+            if self.verbose:
+                print(f'ViT Encoder using patch tokens with shape: {features.shape}')  # [B, 196, 768]
+        
+        if return_attn:
+            return features, outputs.attentions
         return features
 
 # ==========================================================

@@ -16,7 +16,7 @@ class Dataset(str, Enum):
     COCO = 'coco'
     FLICKR = 'flickr'
 
-DATASET = Dataset.FLICKR
+DATASET = Dataset.DOCCI
 
 # Tokenizer config
 class SpecialTokens(str, Enum):
@@ -31,7 +31,7 @@ class TokenizerType(str, Enum):
 TOKENIZER_TYPE = TokenizerType.BPE
 # Upper bound on vocab size during tokenizer training
 if DATASET == Dataset.COCO:
-    UNIQUE_WORD_COUNT = 7000 # TODO: check
+    UNIQUE_WORD_COUNT = 15000
 elif DATASET == Dataset.FLICKR:
     UNIQUE_WORD_COUNT = 21000 # Estimation count of unique words in the dataset
 elif DATASET == Dataset.DOCCI:
@@ -96,7 +96,7 @@ class ViTEncodingStrategy(str, Enum):
     CLS_TOKEN = 'cls_token'
 
 # if ENCODER_ARCH == EncoderArch.VIT_STYLE_BASE or ENCODER_ARCH == EncoderArch.VIT_STYLE_LARGE:
-VIT_ENCODING_STRATEGY = ViTEncodingStrategy.PATCHES
+VIT_ENCODING_STRATEGY = ViTEncodingStrategy.CLS_TOKEN
 
 # Model hyperparameters
 NUM_INPUT_CHANNELS = 3
@@ -104,8 +104,12 @@ NUM_INPUT_CHANNELS = 3
 # include bias in linear layers, except for last linear layer if weight tying is used
 USE_BIAS = False
 
-IMG_HEIGHT = 224
-IMG_WIDTH = 224
+if ENCODER_ARCH == EncoderArch.VIT_STYLE_BASE or ENCODER_ARCH == EncoderArch.VIT_STYLE_LARGE:
+  IMG_HEIGHT = 224
+  IMG_WIDTH = 224
+else: # custom
+    IMG_HEIGHT = 224
+    IMG_WIDTH = 224
 PATCH_SIZE = 16
 NUM_PATCHES = (IMG_HEIGHT // PATCH_SIZE) * (IMG_WIDTH // PATCH_SIZE)
 
@@ -142,14 +146,17 @@ DECODER_HIDDEN_DIM = EMBEDDING_DIM * 4
 DECODER_DROPOUT_PROB = 0.1
 SUBLAYER_DROPOUT = False
 
+# Training config
 BATCH_SIZE_TRAIN = 24
 BATCH_SIZE_VAL = 1
 BATCH_SIZE_TEST = 16
-NUM_FREEZE_EPOCHS = 5
-NUM_EPOCHS = 1
+NUM_FREEZE_EPOCHS = 7
+NUM_EPOCHS = 2
 LR = 3e-4
 WEIGHT_DECAY = 0.01
 LABEL_SMOOTHING = 0.05
+EARLY_STOPPING_PATIENCE = 4
+EARLY_STOPPING_DELTA = 0
 
 # Params from CPTR paper:
 # BATCH_SIZE         = 1              #(1)

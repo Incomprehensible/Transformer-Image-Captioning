@@ -51,8 +51,7 @@ class DatasetLoader:
     # @staticmethod
     def _transforms(self, examples):
         examples["pixel_values"] = [self.tf_compose(image.convert("RGB")) for image in examples["pixel_values"]]
-        examples["description"] = [desc[0].strip() if isinstance(desc, list) else desc for desc in examples["description"]] # TODO: remove after testing
-
+        examples["description"] = [desc[0].strip() if isinstance(desc, list) else desc.strip() for desc in examples["description"]]
         return examples
     
     # TODO?

@@ -29,15 +29,17 @@ class TokenizerType(str, Enum):
     HF = 'hf'
 
 TOKENIZER_TYPE = TokenizerType.BPE
-# Upper bound on vocab size during tokenizer training
-if DATASET == Dataset.COCO:
-    UNIQUE_WORD_COUNT = 15000
-elif DATASET == Dataset.FLICKR:
-    UNIQUE_WORD_COUNT = 21000 # Estimation count of unique words in the dataset
-elif DATASET == Dataset.DOCCI:
-    UNIQUE_WORD_COUNT = 12000 # TODO
 
-TOKENIZER_TRAIN_VOCAB_SIZE = UNIQUE_WORD_COUNT + SpecialTokens.__members__.__len__()
+# Upper bound on vocab size during tokenizer training - estimated from dataset analysis
+# if DATASET == Dataset.COCO:
+#     UNIQUE_WORD_COUNT = 15000
+# elif DATASET == Dataset.FLICKR:
+#     UNIQUE_WORD_COUNT = 21000
+# elif DATASET == Dataset.DOCCI:
+#     UNIQUE_WORD_COUNT = 35500
+
+# TOKENIZER_TRAIN_VOCAB_SIZE = UNIQUE_WORD_COUNT + SpecialTokens.__members__.__len__()
+
 TOKENIZER_FILENAME_PREFIX = f'bpe_tokenizer_{DATASET}'
 
 class MaxSeqLengthStrategy(str, Enum):
@@ -96,7 +98,7 @@ class ViTEncodingStrategy(str, Enum):
     CLS_TOKEN = 'cls_token'
 
 # if ENCODER_ARCH == EncoderArch.VIT_STYLE_BASE or ENCODER_ARCH == EncoderArch.VIT_STYLE_LARGE:
-VIT_ENCODING_STRATEGY = ViTEncodingStrategy.CLS_TOKEN
+VIT_ENCODING_STRATEGY = ViTEncodingStrategy.PATCHES
 
 # Model hyperparameters
 NUM_INPUT_CHANNELS = 3
@@ -147,11 +149,11 @@ DECODER_DROPOUT_PROB = 0.1
 SUBLAYER_DROPOUT = False
 
 # Training config
-BATCH_SIZE_TRAIN = 24
+BATCH_SIZE_TRAIN = 8
 BATCH_SIZE_VAL = 1
-BATCH_SIZE_TEST = 16
-NUM_FREEZE_EPOCHS = 7
-NUM_EPOCHS = 2
+BATCH_SIZE_TEST = 8
+NUM_FREEZE_EPOCHS = 3
+NUM_EPOCHS = 1
 LR = 3e-4
 WEIGHT_DECAY = 0.01
 LABEL_SMOOTHING = 0.05
@@ -175,3 +177,29 @@ EARLY_STOPPING_DELTA = 0
 # NUM_HEADS          = 12             #(11)
 # HIDDEN_DIM         = EMBED_DIM * 4  #(12)
 # DROP_PROB          = 0.1            #(13)
+
+# load currently defined config
+def make_config():
+    # export config as a json dictionary
+    config_dict = {}
+    for key, value in globals().items():
+        if key.isupper():
+            if isinstance(value, pathlib.PosixPath):
+                config_dict[key] = str(value)
+            elif isinstance(value, Enum):
+                config_dict[key] = value.value
+            else:
+                config_dict[key] = value
+    return config_dict
+
+def export_config(filepath: str):
+    config_dict = make_config()
+    with open(filepath, 'w') as f:
+        json.dump(config_dict, f, indent=4)
+
+def import_config(filepath: str):
+    with open(filepath, 'r') as f:
+        config_dict = json.load(f)
+    for key, value in config_dict.items():
+        globals()[key] = value
+    return config_dict

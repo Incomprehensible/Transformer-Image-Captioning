@@ -16,7 +16,7 @@ class Dataset(str, Enum):
     COCO = 'coco'
     FLICKR = 'flickr'
 
-DATASET = Dataset.DOCCI
+DATASET = Dataset.FLICKR
 
 # Tokenizer config
 class SpecialTokens(str, Enum):
@@ -41,7 +41,7 @@ class MaxSeqLengthStrategy(str, Enum):
     CUSTOM = 'custom'
 
 # Maximum text sequence length better be a power of 2 for efficiency
-MAX_SEQUENCE_LENGTH_STRATEGY = MaxSeqLengthStrategy.MEAN
+MAX_SEQUENCE_LENGTH_STRATEGY = MaxSeqLengthStrategy.PERCENTILE_99
 
 if MAX_SEQUENCE_LENGTH_STRATEGY == MaxSeqLengthStrategy.MAX:
     path = TOKENIZER_DATA_PATH / f'max_desc_length_{DATASET}.json'
@@ -80,10 +80,10 @@ class EncoderArch(str, Enum):
     CNN_RESNET50 = 'resnet50'
     VIT_STYLE_BASE = 'google/vit-base-patch16-224-in21k'
     VIT_STYLE_LARGE = 'google/vit-large-patch16-224-in21k'
-    CNN_CPTR_STYLE = 'cnn-cptr-style' # TODO
+    CNN_CPTR_STYLE = 'cnn-cptr-style'
     # CUSTOM_SHOW_AND_TELL_STYLE = 'custom-show-attend-tell'
 
-ENCODER_ARCH = EncoderArch.VIT_STYLE_BASE
+ENCODER_ARCH = EncoderArch.CNN_CPTR_STYLE
 
 class ViTEncodingStrategy(str, Enum):
     PATCHES = 'last_hidden_state_patches'
@@ -96,7 +96,7 @@ VIT_ENCODING_STRATEGY = ViTEncodingStrategy.HYBRID
 NUM_INPUT_CHANNELS = 3
 
 # include bias in linear layers, except for last linear layer if weight tying is used
-USE_BIAS = False
+USE_BIAS = True
 
 if ENCODER_ARCH == EncoderArch.VIT_STYLE_BASE or ENCODER_ARCH == EncoderArch.VIT_STYLE_LARGE:
     IMG_HEIGHT = 224
@@ -105,24 +105,28 @@ else: # custom
     IMG_HEIGHT = 224
     IMG_WIDTH = 224
 
-PATCH_SIZE = 16
-NUM_PATCHES = (IMG_HEIGHT // PATCH_SIZE) * (IMG_WIDTH // PATCH_SIZE)
+if ENCODER_ARCH == EncoderArch.CNN_RESNET50 or ENCODER_ARCH == EncoderArch.CNN_CPTR_STYLE:
+    PATCH_SIZE = 7  # ResNet-50 feature map size is 7x7 for 224x224 input
+    NUM_PATCHES = 49
+else:
+    PATCH_SIZE = 16
+    NUM_PATCHES = (IMG_HEIGHT // PATCH_SIZE) * (IMG_WIDTH // PATCH_SIZE)
 
-if ENCODER_ARCH == EncoderArch.CUSTOM_CPTR_STYLE or ENCODER_ARCH == EncoderArch.CNN_CPTR_STYLE:
+if ENCODER_ARCH == EncoderArch.CUSTOM_CPTR_STYLE:
     IMG_EMBEDDING_DIM = PATCH_SIZE**2 * NUM_INPUT_CHANNELS # doesn't need to be same as TEXT_EMBEDDING_DIM due to projection layer
-elif ENCODER_ARCH == EncoderArch.CNN_RESNET50:
+elif ENCODER_ARCH == EncoderArch.CNN_RESNET50 or ENCODER_ARCH == EncoderArch.CNN_CPTR_STYLE:
     IMG_EMBEDDING_DIM = 2048  # ResNet-50 final feature map channels
 elif ENCODER_ARCH == EncoderArch.VIT_STYLE_BASE:
     IMG_EMBEDDING_DIM = 768
 elif ENCODER_ARCH == EncoderArch.VIT_STYLE_LARGE:
     IMG_EMBEDDING_DIM = 1024
 else:
-    IMG_EMBEDDING_DIM = 512  # default
+    IMG_EMBEDDING_DIM = 768  # default
 
 USE_CONV_IMG_EMBEDDING = True
 
 # text vocab size will be taken from tokenizer
-TEXT_EMBEDDING_DIM = 768 # our d_embed (different from d_model but in this case we set them the same)
+TEXT_EMBEDDING_DIM = 512 # our d_embed (different from d_model but in this case we set them the same)
 
 EMBEDDING_DIM = TEXT_EMBEDDING_DIM  # shared embedding dimension for both image and text (d_model)
 
@@ -130,13 +134,13 @@ USE_PROJECTION_LAYER = (IMG_EMBEDDING_DIM != EMBEDDING_DIM)
 
 USE_WEIGHT_TYING = False
 
-ENCODER_NUM_BLOCKS = 8
-ENCODER_NUM_HEADS = 4
+ENCODER_NUM_BLOCKS = 4
+ENCODER_NUM_HEADS = 8
 ENCODER_DROPOUT_PROB = 0.1
 ENCODER_HIDDEN_DIM = IMG_EMBEDDING_DIM * 4
 
-DECODER_NUM_BLOCKS = 10
-DECODER_NUM_HEADS = 12
+DECODER_NUM_BLOCKS = 8
+DECODER_NUM_HEADS = 8
 DECODER_HIDDEN_DIM = EMBEDDING_DIM * 4
 DECODER_DROPOUT_PROB = 0.1
 SUBLAYER_DROPOUT = True
@@ -144,9 +148,9 @@ SUBLAYER_DROPOUT = True
 # Training config
 USE_ACCUMULATED_GRADIENTS = True
 ACCUMULATION_STEPS = 4
-BATCH_SIZE_TRAIN = 16
+BATCH_SIZE_TRAIN = 64
 BATCH_SIZE_VAL = 1
-BATCH_SIZE_TEST = 16
+BATCH_SIZE_TEST = 32
 NUM_FREEZE_EPOCHS = 10
 NUM_EPOCHS = 50
 LR = 3e-4
@@ -181,8 +185,8 @@ def make_config():
         if key.isupper():
             if isinstance(value, pathlib.PosixPath):
                 config_dict[key] = str(value)
-            elif isinstance(value, Enum):
-                config_dict[key] = value.value
+            # elif isinstance(value, Enum):
+            #     config_dict[key] = value.value
             else:
                 config_dict[key] = value
     return config_dict

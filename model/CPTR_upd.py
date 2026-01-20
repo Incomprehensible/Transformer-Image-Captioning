@@ -22,7 +22,10 @@ import math
 # Encoder side 
 
 class Patcher(torch.nn.Module):
-    def __init__(self, patch_size=config.PATCH_SIZE, channels=config.NUM_INPUT_CHANNELS, emb_dim=config.IMG_EMBEDDING_DIM, bias=config.USE_BIAS):
+    def __init__(self, patch_size, 
+                 channels, 
+                 emb_dim, 
+                 bias):
         super(Patcher, self).__init__()
         self.P = patch_size
         self.C = channels
@@ -43,7 +46,11 @@ class Patcher(torch.nn.Module):
         return self.linear_embedding.weight
 
 class ConvPatcher(torch.nn.Module):
-    def __init__(self, patch_size=config.PATCH_SIZE, channels=config.NUM_INPUT_CHANNELS, emb_dim=config.IMG_EMBEDDING_DIM, bias=config.USE_BIAS, visualize_patches=False):
+    def __init__(self, patch_size, 
+                 channels, 
+                 emb_dim, 
+                 bias, 
+                 visualize_patches=False):
         super(ConvPatcher, self).__init__()
         self.P = patch_size
         self.C = channels
@@ -72,11 +79,11 @@ class ConvPatcher(torch.nn.Module):
         if self.visualize:
             self.visualize_patches(patches, num=5)
         patches = patches.reshape(patches.shape[0], patches.shape[1], -1)  # shape: (batch_size, embedding_dim, num_patches)
-        patches = patches.permute(0, 2, 1)
+        patches = patches.permute(0, 2, 1) # shape: (batch_size, num_patches, embedding_dim)
         return patches
 
 class LearnablePositionalEmbedding(torch.nn.Module):
-    def __init__(self, num_patches, emb_dim=config.IMG_EMBEDDING_DIM):
+    def __init__(self, num_patches, emb_dim):
         super(LearnablePositionalEmbedding, self).__init__()
         self.pos_embedding = torch.nn.Parameter(requires_grad=True, data=torch.randn(size=(1, num_patches, emb_dim)))
 
@@ -84,7 +91,13 @@ class LearnablePositionalEmbedding(torch.nn.Module):
         return self.pos_embedding
 
 class CPTREncoderBlock(torch.nn.Module):
-    def __init__(self, embed_dim=config.IMG_EMBEDDING_DIM, num_heads=config.ENCODER_NUM_HEADS, hidden_dim=config.ENCODER_HIDDEN_DIM, dropout_prob=config.ENCODER_DROPOUT_PROB, bias=config.USE_BIAS, sublayer_dropout=config.SUBLAYER_DROPOUT):
+    def __init__(self, embed_dim, 
+                 num_heads,
+                 hidden_dim, 
+                 dropout_prob, 
+                 bias, 
+                 sublayer_dropout):
+        
         super(CPTREncoderBlock, self).__init__()
         self.MHSA = torch.nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True, dropout=dropout_prob, bias=bias)
         self.layer_norm_1 = torch.nn.LayerNorm(embed_dim)
@@ -122,17 +135,17 @@ class CPTREncoderBlock(torch.nn.Module):
         return x
 
 class CPTREncoder(torch.nn.Module):
-    def __init__(self, img_emb_use_conv=config.USE_CONV_IMG_EMBEDDING,
-                 img_emb_dim=config.IMG_EMBEDDING_DIM, 
-                 patch_size=config.PATCH_SIZE, 
-                 channels=config.NUM_INPUT_CHANNELS,
-                 num_patches=config.NUM_PATCHES,
-                 num_blocks=config.ENCODER_NUM_BLOCKS, 
-                 num_heads=config.ENCODER_NUM_HEADS, 
-                 hidden_dim=config.ENCODER_HIDDEN_DIM, 
-                 dropout_prob=config.ENCODER_DROPOUT_PROB, 
-                 bias=config.USE_BIAS, 
-                 sublayer_dropout=config.SUBLAYER_DROPOUT):
+    def __init__(self, img_emb_use_conv,
+                 img_emb_dim, 
+                 patch_size, 
+                 channels,
+                 num_patches,
+                 num_blocks, 
+                 num_heads, 
+                 hidden_dim, 
+                 dropout_prob, 
+                 bias, 
+                 sublayer_dropout):
         
         super(CPTREncoder, self).__init__()
         
@@ -181,24 +194,63 @@ class CNNEncoder(torch.nn.Module):
         self.backbone = torch.nn.Sequential(*list(resnet.children())[:-2])
         
         # ResNet50 output is [B, 2048, 7, 7] for a 224x224 image.
-        # We need to project 2048 to your d_model (768)
-        # self.projection = torch.nn.Linear(2048, d_model)
         
     def forward(self, x):
         # x: [B, 3, 224, 224]
-        with torch.no_grad(): # Optional: Freeze backbone to save memory/time
-            features = self.backbone(x) # [B, 2048, 7, 7]
+        features = self.backbone(x) # [B, 2048, 7, 7]
         
         # Flatten the grid into a sequence of patches
         B, C, H, W = features.shape
         features = features.view(B, C, H * W).permute(0, 2, 1) # [B, 49, 2048]
         
-        # Project to d_model
-        # return self.projection(features) # [B, 49, 768]
         return features # [B, 49, 2048]
 
+class CNN_CPTREncoder(torch.nn.Module):
+    def __init__(self,
+                 img_emb_dim, 
+                 num_patches,
+                 num_blocks, 
+                 num_heads, 
+                 hidden_dim, 
+                 dropout_prob, 
+                 bias, 
+                 sublayer_dropout):
+        
+        super(CNN_CPTREncoder, self).__init__()
+        
+        # image side
+        self.patcher = CNNEncoder()
+        self.img_pos_embedding = LearnablePositionalEmbedding(num_patches=num_patches, emb_dim=img_emb_dim)
+        
+        self.encoder_blocks = torch.nn.ModuleList()
+        for _ in range(num_blocks):
+            self.encoder_blocks.append(CPTREncoderBlock(embed_dim=img_emb_dim, 
+                                                        num_heads=num_heads, 
+                                                        hidden_dim=hidden_dim, 
+                                                        dropout_prob=dropout_prob, 
+                                                        bias=bias, 
+                                                        sublayer_dropout=sublayer_dropout))
+        if sublayer_dropout:
+            self.sublayer_dropout = torch.nn.Dropout(p=dropout_prob)
+        
+        self.images_norm = torch.nn.LayerNorm(img_emb_dim)
+
+    def forward(self, x):
+        x = self.patcher(x)
+
+        x = x + self.img_pos_embedding()
+        if hasattr(self, 'sublayer_dropout'):
+            x = self.sublayer_dropout(x)
+        
+        for block in self.encoder_blocks:
+            x = block(x)
+
+        x = self.images_norm(x)
+
+        return x
+
 class ViTEncoder(torch.nn.Module):
-    def __init__(self, model_patch: str, encoding_strategy = config.VIT_ENCODING_STRATEGY, verbose=False):
+    def __init__(self, model_patch, encoding_strategy, verbose=False):
         super().__init__()
         self.vit = ViTModel.from_pretrained(model_patch, output_attentions=True, output_hidden_states=False)
         
@@ -213,12 +265,12 @@ class ViTEncoder(torch.nn.Module):
         # x: [B, 3, 224, 224]
         outputs = self.vit(x)
         # last_hidden_state: [Batch, 197, 768] (1 CLS + 196 patches)
-        if self.encoding_strategy == config.ViTEncodingStrategy.CLS_TOKEN:
+        if self.encoding_strategy == config.ViTEncodingStrategy.CLS_TOKEN.value:
             features = outputs.last_hidden_state[:, 0, :] # CLS token
             features = features[:, None, :]
             if self.verbose:
                 print(f'ViT Encoder using CLS token with shape: {features.shape}')  # [B, 1, 768]
-        elif self.encoding_strategy == config.ViTEncodingStrategy.HYBRID:
+        elif self.encoding_strategy == config.ViTEncodingStrategy.HYBRID.value:
             features = outputs.last_hidden_state  # [B, 197, 768]
         else: # PATCHES
             features = outputs.last_hidden_state[:, 1:, :] # # [B, 196, 768]
@@ -244,10 +296,7 @@ class LearnableWordEmbedding(torch.nn.Module):
         return embeddings
 
 class SinusoidPositionalEncoding(torch.nn.Module):
-    def __init__(self,
-        max_seq_len=config.MAX_TEXT_SEQUENCE_LENGTH,
-        emb_dim=config.TEXT_EMBEDDING_DIM
-    ):
+    def __init__(self, max_seq_len, emb_dim):
         super().__init__()
         # create the positional encoding tensor of shape
         # maximum sequence length (L) by embedding dimension (D)
@@ -275,7 +324,14 @@ class SinusoidPositionalEncoding(torch.nn.Module):
         return self.pe[:, :x.shape[1], :]
 
 class DecoderBlock(torch.nn.Module):
-    def __init__(self, embed_dim=config.EMBEDDING_DIM, num_heads=config.DECODER_NUM_HEADS, hidden_dim=config.DECODER_HIDDEN_DIM, dropout_prob=config.DECODER_DROPOUT_PROB, bias=config.USE_BIAS, sublayer_dropout=config.SUBLAYER_DROPOUT, verbose=False):
+    def __init__(self, embed_dim, 
+                 num_heads, 
+                 hidden_dim, 
+                 dropout_prob, 
+                 bias, 
+                 sublayer_dropout, 
+                 verbose=False):
+        
         super(DecoderBlock, self).__init__()
         self.MMHSA = torch.nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True, dropout=dropout_prob, bias=bias)
         self.layer_norm_1 = torch.nn.LayerNorm(embed_dim)
@@ -344,18 +400,18 @@ class DecoderBlock(torch.nn.Module):
 
 class Decoder(torch.nn.Module):
     def __init__(self, vocab_size,
-                 text_emb_dim=config.TEXT_EMBEDDING_DIM,
-                 d_model=config.EMBEDDING_DIM,
-                 max_text_seq_len=config.MAX_TEXT_SEQUENCE_LENGTH,
-                 pad_idx=0,
-                 decoder_dropout_prob=config.DECODER_DROPOUT_PROB,
-                 num_blocks=config.DECODER_NUM_BLOCKS, 
-                 embed_dim=config.EMBEDDING_DIM, 
-                 num_heads=config.DECODER_NUM_HEADS, 
-                 hidden_dim=config.DECODER_HIDDEN_DIM, 
-                 dropout_prob=config.DECODER_DROPOUT_PROB, 
-                 bias=config.USE_BIAS, 
-                 sublayer_dropout=config.SUBLAYER_DROPOUT, 
+                 text_emb_dim,
+                 d_model,
+                 max_text_seq_len,
+                 pad_idx,
+                 decoder_dropout_prob,
+                 num_blocks, 
+                 embed_dim, 
+                 num_heads, 
+                 hidden_dim,
+                 dropout_prob, 
+                 bias, 
+                 sublayer_dropout, 
                  verbose=False):
         
         super(Decoder, self).__init__()
@@ -401,7 +457,11 @@ class Decoder(torch.nn.Module):
 # project encoder output embeddings to the shared embedding dimension (which is based on text embedding dimension)
 # is activated only if IMG_EMBEDDING_DIM != TEXT_EMBEDDING_DIM
 class EmbeddingProjection(torch.nn.Module):
-    def __init__(self, d_img_emb: int=config.IMG_EMBEDDING_DIM, d_model: int=config.TEXT_EMBEDDING_DIM, p_dropout=config.ENCODER_DROPOUT_PROB, bias=config.USE_BIAS):
+    def __init__(self, d_img_emb: int, 
+                 d_model: int,
+                 p_dropout: float, 
+                 bias: bool):
+        
         super(EmbeddingProjection, self).__init__()
         self.projection = torch.nn.Linear(in_features=d_img_emb, out_features=d_model, bias=bias)
         self.layernorm = torch.nn.LayerNorm(d_model)
@@ -419,29 +479,29 @@ class EmbeddingProjection(torch.nn.Module):
 
 class CPTR(torch.nn.Module):
     def __init__(self, vocab_size,
-                 encoder_arch=config.ENCODER_ARCH,
-                 encoding_strategy=None,
-                 num_patches=(config.IMG_HEIGHT//config.PATCH_SIZE)*(config.IMG_WIDTH//config.PATCH_SIZE),
-                 use_embedding_projection=config.USE_PROJECTION_LAYER,
-                 img_emb_use_conv=config.USE_CONV_IMG_EMBEDDING,
-                 img_emb_dim=config.IMG_EMBEDDING_DIM, 
-                 patch_size=config.PATCH_SIZE, 
-                 channels=config.NUM_INPUT_CHANNELS,
-                 num_encoder_blocks=config.ENCODER_NUM_BLOCKS,
-                 num_encoder_heads=config.ENCODER_NUM_HEADS,
-                 encoder_hidden_dim=config.ENCODER_HIDDEN_DIM,
-                 encoder_dropout_prob=config.ENCODER_DROPOUT_PROB,
-                 text_emb_dim=config.TEXT_EMBEDDING_DIM,
-                 d_model=config.EMBEDDING_DIM,
-                 max_text_seq_len=config.MAX_TEXT_SEQUENCE_LENGTH,
-                 pad_idx=0,
-                 num_decoder_blocks=config.DECODER_NUM_BLOCKS,
-                 num_decoder_heads=config.DECODER_NUM_HEADS,
-                 decoder_hidden_dim=config.DECODER_HIDDEN_DIM,
-                 decoder_dropout_prob=config.DECODER_DROPOUT_PROB,
-                 bias=config.USE_BIAS,
-                 use_weight_tying=config.USE_WEIGHT_TYING,
-                 sublayer_dropout=config.SUBLAYER_DROPOUT,
+                 encoder_arch,
+                 encoding_strategy,
+                 num_patches,
+                 use_embedding_projection,
+                 img_emb_use_conv,
+                 img_emb_dim, 
+                 patch_size, 
+                 channels,
+                 num_encoder_blocks,
+                 num_encoder_heads,
+                 encoder_hidden_dim,
+                 encoder_dropout_prob,
+                 text_emb_dim,
+                 d_model,
+                 max_text_seq_len,
+                 pad_idx,
+                 num_decoder_blocks,
+                 num_decoder_heads,
+                 decoder_hidden_dim,
+                 decoder_dropout_prob,
+                 bias,
+                 use_weight_tying,
+                 sublayer_dropout,
                  verbose=False):
         
         super(CPTR, self).__init__()
@@ -465,9 +525,19 @@ class CPTR(torch.nn.Module):
             print("Initialized CNN ResNet-50 Encoder")
         elif encoder_arch == config.EncoderArch.VIT_STYLE_BASE or \
             encoder_arch == config.EncoderArch.VIT_STYLE_LARGE:
-            model_patch = encoder_arch.value
+            model_patch = encoder_arch
             self.encoder = ViTEncoder(model_patch=model_patch, encoding_strategy=encoding_strategy)
             print(f"Initialized ViT Encoder: {model_patch}")
+        elif encoder_arch == config.EncoderArch.CNN_CPTR_STYLE:
+            self.encoder = CNN_CPTREncoder(img_emb_dim=img_emb_dim, 
+                                   num_patches=num_patches,
+                                   num_blocks=num_encoder_blocks, 
+                                   num_heads=num_encoder_heads, 
+                                   hidden_dim=encoder_hidden_dim, 
+                                   dropout_prob=encoder_dropout_prob,
+                                   bias=bias,
+                                   sublayer_dropout=sublayer_dropout)
+            print("Initialized CNN + CPTR Encoder")
         else:
             raise ValueError(f"Unsupported encoder architecture: {encoder_arch}")
         

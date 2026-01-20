@@ -22,6 +22,7 @@ class DatasetLoader:
                 shuffle_val=False,
                 shuffle_test=False,
                 seed=config.RANDOM_SEED):
+        
         self.dataset_type = dataset_type
         self.dataset_train = None
         self.dataset_val = None

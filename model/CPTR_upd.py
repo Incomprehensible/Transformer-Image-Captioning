@@ -100,14 +100,25 @@ class CPTREncoderBlock(torch.nn.Module):
             self.sublayer_dropout = torch.nn.Dropout(p=dropout_prob)
 
     def forward(self, x):
+        residual = x
+
+        x = self.layer_norm_1(x)
+
         attn_output, weights = self.MHSA(query=x, key=x, value=x)
-        
         if hasattr(self, 'sublayer_dropout'):
             attn_output = self.sublayer_dropout(attn_output)
         
-        x = self.layer_norm_1(x + attn_output)
+        x = residual + attn_output
+        residual = x
+
+        x = self.layer_norm_2(x)
+
         ff_output = self.FFN(x)
-        x = self.layer_norm_2(x + ff_output)
+        if hasattr(self, 'sublayer_dropout'):
+            ff_output = self.sublayer_dropout(ff_output)
+        
+        x = residual + ff_output
+
         return x
 
 class CPTREncoder(torch.nn.Module):
@@ -117,7 +128,6 @@ class CPTREncoder(torch.nn.Module):
                  channels=config.NUM_INPUT_CHANNELS,
                  num_patches=config.NUM_PATCHES,
                  num_blocks=config.ENCODER_NUM_BLOCKS, 
-                 embed_dim=config.IMG_EMBEDDING_DIM, 
                  num_heads=config.ENCODER_NUM_HEADS, 
                  hidden_dim=config.ENCODER_HIDDEN_DIM, 
                  dropout_prob=config.ENCODER_DROPOUT_PROB, 
@@ -135,7 +145,7 @@ class CPTREncoder(torch.nn.Module):
         
         self.encoder_blocks = torch.nn.ModuleList()
         for _ in range(num_blocks):
-            self.encoder_blocks.append(CPTREncoderBlock(embed_dim=embed_dim, 
+            self.encoder_blocks.append(CPTREncoderBlock(embed_dim=img_emb_dim, 
                                                         num_heads=num_heads, 
                                                         hidden_dim=hidden_dim, 
                                                         dropout_prob=dropout_prob, 
@@ -143,17 +153,21 @@ class CPTREncoder(torch.nn.Module):
                                                         sublayer_dropout=sublayer_dropout))
         if sublayer_dropout:
             self.sublayer_dropout = torch.nn.Dropout(p=dropout_prob)
+        
+        self.images_norm = torch.nn.LayerNorm(img_emb_dim)
 
     def forward(self, x):
-        patches = self.patcher(x)
-        pos_emb = self.img_pos_embedding()
-        x = patches + pos_emb
-        
+        x = self.patcher(x)
+
+        x = x + self.img_pos_embedding()
         if hasattr(self, 'sublayer_dropout'):
             x = self.sublayer_dropout(x)
         
         for block in self.encoder_blocks:
             x = block(x)
+
+        x = self.images_norm(x)
+
         return x
 
 class CNNEncoder(torch.nn.Module):
@@ -194,6 +208,7 @@ class ViTEncoder(torch.nn.Module):
         self.encoding_strategy = encoding_strategy
         self.verbose = verbose
 
+    # ViT already contains final layernorm
     def forward(self, x, return_attn=False):
         # x: [B, 3, 224, 224]
         outputs = self.vit(x)
@@ -203,7 +218,9 @@ class ViTEncoder(torch.nn.Module):
             features = features[:, None, :]
             if self.verbose:
                 print(f'ViT Encoder using CLS token with shape: {features.shape}')  # [B, 1, 768]
-        else:
+        elif self.encoding_strategy == config.ViTEncodingStrategy.HYBRID:
+            features = outputs.last_hidden_state  # [B, 197, 768]
+        else: # PATCHES
             features = outputs.last_hidden_state[:, 1:, :] # # [B, 196, 768]
             if self.verbose:
                 print(f'ViT Encoder using patch tokens with shape: {features.shape}')  # [B, 196, 768]
@@ -279,6 +296,9 @@ class DecoderBlock(torch.nn.Module):
         if verbose:
             print(f'DecoderBlock initialized with embed_dim={embed_dim}, num_heads={num_heads}, hidden_dim={hidden_dim}, dropout_prob={dropout_prob}, bias={bias}')
 
+    # switched to pre-norm architecture
+    # https://www.reddit.com/r/MachineLearning/comments/zzqzoy/d_does_it_make_sense_to_use_dropout_and_layer/
+    # https://arxiv.org/pdf/2002.04745
     # encoder output tensor will be passed as the key and value
     def forward(self, x, kv, attn_mask, pad_mask):
         if x.ndim != 3:
@@ -287,33 +307,39 @@ class DecoderBlock(torch.nn.Module):
         if self.verbose:
             print('Q shape:', x.shape)
             print('K/V shape:', kv.shape)
-        attn_output, mmhsa_w = self.MMHSA(query=x, key=x, value=x, attn_mask=attn_mask, key_padding_mask=pad_mask)
-        # print('Masked Multi-Head Self-Attention weights shape:', mmhsa_w.shape)
         
+        residual = x
+        x = self.layer_norm_1(x)
+        attn_output, mmhsa_w = self.MMHSA(query=x, key=x, value=x, 
+                                         attn_mask=attn_mask, 
+                                         key_padding_mask=pad_mask)
+
         if hasattr(self, 'sublayer_dropout'):
-            # apply dropout before layer normalization for each sublayer
             attn_output = self.sublayer_dropout(attn_output)
-            
-        x = self.layer_norm_1(x + attn_output) # TODO: debug cross attention, and text vs img embeddings as inputs
+        x = residual + attn_output
+
+        residual = x
+        x = self.layer_norm_2(x)
         attn_output, mhca_w = self.MHCA(query=x, key=kv, value=kv)
-        # print('Cross Attention weights shape:', mhca_w.shape)
-        
+
         if hasattr(self, 'sublayer_dropout'):
             attn_output = self.sublayer_dropout(attn_output)
-        
-        x = self.layer_norm_2(x + attn_output)
+        x = residual + attn_output
+
+        residual = x
+        x = self.layer_norm_3(x)
         ff_output = self.FFN(x)
-        
+
         if hasattr(self, 'sublayer_dropout'):
             ff_output = self.sublayer_dropout(ff_output)
+        x = residual + ff_output
         
-        x = self.layer_norm_3(x + ff_output)
         if self.verbose:
             print(f"Cross-attn weights mean: {mhca_w.mean()}, std: {mhca_w.std()}")
             print(f'MMHSA weights shape: {mmhsa_w.shape}')
             print(f'MHCA weights shape: {mhca_w.shape}')
             print(f'FFN output shape: {ff_output.shape}')
-            # self.verbose = False  # only print once
+            self.verbose = False  # only print once
         return x
 
 class Decoder(torch.nn.Module):
@@ -358,12 +384,15 @@ class Decoder(torch.nn.Module):
         if text_tokens.ndim < 2:
             text_tokens = text_tokens.unsqueeze(0)
         
-        embeddings = self.word_embedding(text_tokens) * self.scaling # (B, L) -> (B, L, D)
-        emb_sum = self.text_layernorm(embeddings + self.text_pos_embedding(embeddings))
-        x = self.text_dropout(emb_sum)
+        x = self.word_embedding(text_tokens) * self.scaling # (B, L) -> (B, L, D)
+        x = x + self.text_pos_embedding(text_tokens)
+        x = self.text_dropout(x)
         
         for block in self.decoder_blocks:
             x = block.forward(x=x, kv=enc_output, attn_mask=attn_mask, pad_mask=pad_mask)
+
+        x = self.text_layernorm(x)
+
         return x
 
 # ==========================================================
@@ -425,7 +454,6 @@ class CPTR(torch.nn.Module):
                                    channels=channels,
                                    num_patches=num_patches,
                                    num_blocks=num_encoder_blocks, 
-                                   embed_dim=img_emb_dim, 
                                    num_heads=num_encoder_heads, 
                                    hidden_dim=encoder_hidden_dim, 
                                    dropout_prob=encoder_dropout_prob,
@@ -490,7 +518,7 @@ class CPTR(torch.nn.Module):
         text_features = self.decoder(text_tokens=text_tokens, 
                                      enc_output=img_features, 
                                      attn_mask=attn_mask, 
-                                     pad_mask=pad_mask) # Q
+                                     pad_mask=pad_mask)
         logits = self.linear(text_features)
         
         loss = None

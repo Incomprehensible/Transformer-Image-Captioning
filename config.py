@@ -29,17 +29,6 @@ class TokenizerType(str, Enum):
     HF = 'hf'
 
 TOKENIZER_TYPE = TokenizerType.BPE
-
-# Upper bound on vocab size during tokenizer training - estimated from dataset analysis
-# if DATASET == Dataset.COCO:
-#     UNIQUE_WORD_COUNT = 15000
-# elif DATASET == Dataset.FLICKR:
-#     UNIQUE_WORD_COUNT = 21000
-# elif DATASET == Dataset.DOCCI:
-#     UNIQUE_WORD_COUNT = 35500
-
-# TOKENIZER_TRAIN_VOCAB_SIZE = UNIQUE_WORD_COUNT + SpecialTokens.__members__.__len__()
-
 TOKENIZER_FILENAME_PREFIX = f'bpe_tokenizer_{DATASET}'
 
 class MaxSeqLengthStrategy(str, Enum):
@@ -48,11 +37,11 @@ class MaxSeqLengthStrategy(str, Enum):
     PERCENTILE_92 = '92_percentile'
     PERCENTILE_95 = '95_percentile'
     PERCENTILE_99 = '99_percentile'
+    MEAN = 'mean'
     CUSTOM = 'custom'
 
 # Maximum text sequence length better be a power of 2 for efficiency
-
-MAX_SEQUENCE_LENGTH_STRATEGY = MaxSeqLengthStrategy.PERCENTILE_99
+MAX_SEQUENCE_LENGTH_STRATEGY = MaxSeqLengthStrategy.MEAN
 
 if MAX_SEQUENCE_LENGTH_STRATEGY == MaxSeqLengthStrategy.MAX:
     path = TOKENIZER_DATA_PATH / f'max_desc_length_{DATASET}.json'
@@ -74,6 +63,9 @@ elif MAX_SEQUENCE_LENGTH_STRATEGY == MaxSeqLengthStrategy.PERCENTILE_95:
 elif MAX_SEQUENCE_LENGTH_STRATEGY == MaxSeqLengthStrategy.PERCENTILE_99:
     if pathlib.Path(path).exists():
         MAX_TEXT_SEQUENCE_LENGTH = json.load(open(path))['max_99']
+elif MAX_SEQUENCE_LENGTH_STRATEGY == MaxSeqLengthStrategy.MEAN:
+    if pathlib.Path(path).exists():
+        MAX_TEXT_SEQUENCE_LENGTH = int(json.load(open(path))['mean'])
 else:
     MAX_TEXT_SEQUENCE_LENGTH = 60  # Custom value
 
@@ -88,7 +80,7 @@ class EncoderArch(str, Enum):
     CNN_RESNET50 = 'resnet50'
     VIT_STYLE_BASE = 'google/vit-base-patch16-224-in21k'
     VIT_STYLE_LARGE = 'google/vit-large-patch16-224-in21k'
-    CNN_CPTR_STYLE = 'cnn-cptr-style'
+    CNN_CPTR_STYLE = 'cnn-cptr-style' # TODO
     # CUSTOM_SHOW_AND_TELL_STYLE = 'custom-show-attend-tell'
 
 ENCODER_ARCH = EncoderArch.VIT_STYLE_BASE
@@ -96,9 +88,9 @@ ENCODER_ARCH = EncoderArch.VIT_STYLE_BASE
 class ViTEncodingStrategy(str, Enum):
     PATCHES = 'last_hidden_state_patches'
     CLS_TOKEN = 'cls_token'
+    HYBRID = 'hybrid'
 
-# if ENCODER_ARCH == EncoderArch.VIT_STYLE_BASE or ENCODER_ARCH == EncoderArch.VIT_STYLE_LARGE:
-VIT_ENCODING_STRATEGY = ViTEncodingStrategy.PATCHES
+VIT_ENCODING_STRATEGY = ViTEncodingStrategy.HYBRID
 
 # Model hyperparameters
 NUM_INPUT_CHANNELS = 3
@@ -107,11 +99,12 @@ NUM_INPUT_CHANNELS = 3
 USE_BIAS = False
 
 if ENCODER_ARCH == EncoderArch.VIT_STYLE_BASE or ENCODER_ARCH == EncoderArch.VIT_STYLE_LARGE:
-  IMG_HEIGHT = 224
-  IMG_WIDTH = 224
+    IMG_HEIGHT = 224
+    IMG_WIDTH = 224
 else: # custom
     IMG_HEIGHT = 224
     IMG_WIDTH = 224
+
 PATCH_SIZE = 16
 NUM_PATCHES = (IMG_HEIGHT // PATCH_SIZE) * (IMG_WIDTH // PATCH_SIZE)
 
@@ -129,7 +122,7 @@ else:
 USE_CONV_IMG_EMBEDDING = True
 
 # text vocab size will be taken from tokenizer
-TEXT_EMBEDDING_DIM = 512 # our d_embed (different from d_model but in this case we set them the same)
+TEXT_EMBEDDING_DIM = 768 # our d_embed (different from d_model but in this case we set them the same)
 
 EMBEDDING_DIM = TEXT_EMBEDDING_DIM  # shared embedding dimension for both image and text (d_model)
 
@@ -142,23 +135,25 @@ ENCODER_NUM_HEADS = 4
 ENCODER_DROPOUT_PROB = 0.1
 ENCODER_HIDDEN_DIM = IMG_EMBEDDING_DIM * 4
 
-DECODER_NUM_BLOCKS = 8
-DECODER_NUM_HEADS = 8
+DECODER_NUM_BLOCKS = 10
+DECODER_NUM_HEADS = 12
 DECODER_HIDDEN_DIM = EMBEDDING_DIM * 4
 DECODER_DROPOUT_PROB = 0.1
-SUBLAYER_DROPOUT = False
+SUBLAYER_DROPOUT = True
 
 # Training config
-BATCH_SIZE_TRAIN = 8
+USE_ACCUMULATED_GRADIENTS = True
+ACCUMULATION_STEPS = 4
+BATCH_SIZE_TRAIN = 16
 BATCH_SIZE_VAL = 1
-BATCH_SIZE_TEST = 8
-NUM_FREEZE_EPOCHS = 3
-NUM_EPOCHS = 1
+BATCH_SIZE_TEST = 16
+NUM_FREEZE_EPOCHS = 10
+NUM_EPOCHS = 50
 LR = 3e-4
-WEIGHT_DECAY = 0.01
-LABEL_SMOOTHING = 0.05
-EARLY_STOPPING_PATIENCE = 4
-EARLY_STOPPING_DELTA = 0
+WEIGHT_DECAY = 0.05
+LABEL_SMOOTHING = 0.1
+EARLY_STOPPING_PATIENCE = 3
+EARLY_STOPPING_DELTA = 0.005
 
 # Params from CPTR paper:
 # BATCH_SIZE         = 1              #(1)

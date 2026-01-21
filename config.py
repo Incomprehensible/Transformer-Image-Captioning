@@ -2,6 +2,9 @@ import pathlib
 import json
 from enum import Enum
 
+from traitlets import Any
+from typing import Dict
+
 # Folder structure
 CONFIG_ROOT = pathlib.Path(__file__).parent.resolve()
 TOKENIZER_DATA_PATH = CONFIG_ROOT / 'tokenizer_data'
@@ -83,7 +86,7 @@ class EncoderArch(str, Enum):
     CNN_CPTR_STYLE = 'cnn-cptr-style'
     # CUSTOM_SHOW_AND_TELL_STYLE = 'custom-show-attend-tell'
 
-ENCODER_ARCH = EncoderArch.CNN_CPTR_STYLE
+ENCODER_ARCH = EncoderArch.CNN_RESNET50
 
 class ViTEncodingStrategy(str, Enum):
     PATCHES = 'last_hidden_state_patches'
@@ -139,8 +142,8 @@ ENCODER_NUM_HEADS = 8
 ENCODER_DROPOUT_PROB = 0.1
 ENCODER_HIDDEN_DIM = IMG_EMBEDDING_DIM * 4
 
-DECODER_NUM_BLOCKS = 1#8
-DECODER_NUM_HEADS = 1#8
+DECODER_NUM_BLOCKS = 8
+DECODER_NUM_HEADS = 10
 DECODER_HIDDEN_DIM = EMBEDDING_DIM * 4
 DECODER_DROPOUT_PROB = 0.1
 SUBLAYER_DROPOUT = True
@@ -148,11 +151,11 @@ SUBLAYER_DROPOUT = True
 # Training config
 USE_ACCUMULATED_GRADIENTS = True
 ACCUMULATION_STEPS = 4
-BATCH_SIZE_TRAIN = 16
+BATCH_SIZE_TRAIN = 32
 BATCH_SIZE_VAL = 1
-BATCH_SIZE_TEST = 16
-NUM_FREEZE_EPOCHS = 0
-NUM_EPOCHS = 1
+BATCH_SIZE_TEST = 32
+NUM_FREEZE_EPOCHS = 30
+NUM_EPOCHS = 20
 LR = 3e-4
 WEIGHT_DECAY = 0.05
 LABEL_SMOOTHING = 0.1
@@ -196,9 +199,14 @@ def export_config(filepath: str):
     with open(filepath, 'w') as f:
         json.dump(config_dict, f, indent=4)
 
-def import_config(filepath: str):
+def import_config(filepath: str, override: bool = False):
     with open(filepath, 'r') as f:
         config_dict = json.load(f)
-    for key, value in config_dict.items():
-        globals()[key] = value
+    if override:
+        for key, value in config_dict.items():
+            globals()[key] = value
     return config_dict
+
+def print_config(config: Dict[str, Any]):
+    for key in sorted(config.keys()):
+        print(f"{key}: {config[key]}")

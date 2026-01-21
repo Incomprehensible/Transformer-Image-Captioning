@@ -8,22 +8,28 @@ import pathlib
 import torch
 import time
 from typing import Dict, Any, Optional, Tuple
-import config
+import config as cfg
 
 
-def get_relevant_config() -> Dict[str, Any]:
+def get_relevant_config(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Extract only the relevant config parameters for comparison."""
-    return {
-        'DATASET': str(config.DATASET),
-        'ENCODER_ARCH': str(config.ENCODER_ARCH),
-        'TOKENIZER_TYPE': str(config.TOKENIZER_TYPE),
-    }
-
+    if config is None:
+        return {
+                'DATASET': cfg.DATASET.value,
+                'ENCODER_ARCH': cfg.ENCODER_ARCH.value,
+                'TOKENIZER_TYPE': cfg.TOKENIZER_TYPE.value,
+            }
+    else:
+        return {
+                'DATASET': config['DATASET'],
+                'ENCODER_ARCH': config['ENCODER_ARCH'],
+                'TOKENIZER_TYPE': config['TOKENIZER_TYPE'],
+            }
 
 def load_config_from_file(config_path: str) -> Dict[str, Any]:
     """Load configuration from a saved config file."""
     try:
-        return config.import_config(config_path)
+        return cfg.import_config(config_path, override=False)
     except Exception as e:
         print(f"Error loading config from {config_path}: {e}")
         return {}
@@ -39,13 +45,13 @@ def load_results_from_file(results_path: str) -> Dict[str, Any]:
         return {}
 
 
-def configs_match(config1: Dict[str, Any], config2: Dict[str, Any]) -> bool:
+def configs_match(config1: Dict[str, Any], config2: Dict[str, Any], verbose: bool = True) -> bool:
     """Compare only the relevant config parameters."""
     relevant_keys = ['DATASET', 'ENCODER_ARCH', 'TOKENIZER_TYPE']
     
     for key in relevant_keys:
         # Handle cases where values might be enum strings or different formats
-        val1 = str(config1.get(key, ''))
+        val1 = config1.get(key, '').value
         val2 = str(config2.get(key, ''))
         
         # Extract the enum value if it contains a period (e.g., "Dataset.COCO" -> "coco")
@@ -54,7 +60,11 @@ def configs_match(config1: Dict[str, Any], config2: Dict[str, Any]) -> bool:
         if '.' in val2:
             val2 = val2.split('.')[-1].lower()
         
+        if verbose:
+            print(f"    Comparing {key}: '{val1}' vs '{val2}'")
         if val1.lower() != val2.lower():
+            if verbose:
+                print(f"    -> Mismatch found in {key}")
             return False
     
     return True
@@ -62,7 +72,8 @@ def configs_match(config1: Dict[str, Any], config2: Dict[str, Any]) -> bool:
 
 def find_matching_config_folder(
     results_root: pathlib.Path,
-    current_config: Dict[str, Any]
+    current_config: Dict[str, Any],
+    verbose: bool = True
 ) -> Optional[pathlib.Path]:
     """
     Search for an existing subfolder with matching configuration.
@@ -71,16 +82,24 @@ def find_matching_config_folder(
     if not results_root.exists():
         return None
     
+    if verbose:
+        print("Searching for matching configuration folder...")
     for subfolder in results_root.iterdir():
         if not subfolder.is_dir():
             continue
         
+        if verbose:
+            print(f"  - Checking folder: {subfolder.name}")
         config_file = subfolder / 'config.json'
         if not config_file.exists():
+            if verbose:
+                print("    -> No config file found, skipping.")
             continue
         
         saved_config = load_config_from_file(str(config_file))
-        if configs_match(current_config, saved_config):
+        if configs_match(current_config, saved_config, verbose=verbose):
+            if verbose:
+                print(f"    -> Match found: {subfolder.name}")
             return subfolder
     
     return None
@@ -103,6 +122,8 @@ def extract_test_loss(results: Dict[str, Any]) -> Optional[float]:
 def save_results_smart(
     model: torch.nn.Module,
     results: Dict[str, Any],
+    current_config: Dict[str, Any],
+    verbose: bool = True
 ) -> Tuple[bool, str, str]:
     """
     Smart saving mechanism that compares configurations and manages model checkpoints.
@@ -110,25 +131,27 @@ def save_results_smart(
     Args:
         model: The model to save (state_dict will be extracted)
         results: Dictionary containing training results (must include test loss)
-        config_root: Root directory for results. If None, uses config.CONFIG_ROOT
+        config_root: Root directory for results.
     
     Returns:
         Tuple of (success: bool, message: str)
     """
     
-    config_root = pathlib.Path(config.CONFIG_ROOT)
+    config_root = pathlib.Path(current_config["CONFIG_ROOT"])
     
     results_root = config_root / 'results'
     results_root.mkdir(parents=True, exist_ok=True)
     
-    current_config = get_relevant_config()
+    current_config = get_relevant_config(config=current_config)
     current_test_loss = extract_test_loss(results)
+    if verbose:
+        print(f"Current test loss: {current_test_loss}")
     
     if current_test_loss is None:
         return False, "Error: Could not extract test loss from results", ""
     
     # Look for matching config folder
-    matching_folder = find_matching_config_folder(results_root, current_config)
+    matching_folder = find_matching_config_folder(results_root, current_config, verbose=verbose)
     
     if matching_folder is not None:
         # Found matching config - compare test losses
@@ -137,6 +160,8 @@ def save_results_smart(
         if existing_results_file.exists():
             existing_results = load_results_from_file(str(existing_results_file))
             existing_test_loss = extract_test_loss(existing_results)
+            if verbose:
+                print(f"Existing test loss: {existing_test_loss}")
             
             if existing_test_loss is not None and current_test_loss >= existing_test_loss:
                 # Current test loss is not better
@@ -176,7 +201,7 @@ def save_results_smart(
     # Save config
     try:
         config_path = target_folder / 'config.json'
-        config.export_config(str(config_path))
+        cfg.export_config(str(config_path))
         message += f"\n  - Config saved: config.json"
     except Exception as e:
         return False, f"Error saving config: {e}", str(target_folder)
@@ -184,14 +209,14 @@ def save_results_smart(
     return True, message, str(target_folder)
 
 
-def list_saved_configs() -> Dict[str, Dict[str, Any]]:
+def list_saved_configs(current_config: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     """
     List all saved configurations in the results directory.
     
     Returns:
         Dictionary mapping folder names to their configuration info.
     """
-    config_root = pathlib.Path(config.CONFIG_ROOT)
+    config_root = pathlib.Path(current_config["CONFIG_ROOT"])
     
     results_root = config_root / 'results'
     configs_info = {}

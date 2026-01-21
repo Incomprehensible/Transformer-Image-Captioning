@@ -111,13 +111,15 @@ class CPTREncoderBlock(torch.nn.Module):
         
         if sublayer_dropout:
             self.sublayer_dropout = torch.nn.Dropout(p=dropout_prob)
+        
+        self.last_attn = None
 
     def forward(self, x):
         residual = x
 
         x = self.layer_norm_1(x)
 
-        attn_output, weights = self.MHSA(query=x, key=x, value=x)
+        attn_output, weights = self.MHSA(query=x, key=x, value=x, average_attn_weights=False)
         if hasattr(self, 'sublayer_dropout'):
             attn_output = self.sublayer_dropout(attn_output)
         
@@ -132,6 +134,8 @@ class CPTREncoderBlock(torch.nn.Module):
         
         x = residual + ff_output
 
+        self.last_attn = weights
+        
         return x
 
 class CPTREncoder(torch.nn.Module):
@@ -169,17 +173,24 @@ class CPTREncoder(torch.nn.Module):
         
         self.images_norm = torch.nn.LayerNorm(img_emb_dim)
 
-    def forward(self, x):
+    def forward(self, x, return_attn=False):
         x = self.patcher(x)
 
         x = x + self.img_pos_embedding()
         if hasattr(self, 'sublayer_dropout'):
             x = self.sublayer_dropout(x)
         
+        attentions = []
+        
         for block in self.encoder_blocks:
             x = block(x)
+            if return_attn:
+                attentions.append(block.last_attn)
 
         x = self.images_norm(x)
+        
+        if return_attn:
+            return x, attentions
 
         return x
 
@@ -235,23 +246,34 @@ class CNN_CPTREncoder(torch.nn.Module):
         
         self.images_norm = torch.nn.LayerNorm(img_emb_dim)
 
-    def forward(self, x):
+    def forward(self, x, return_attn=False):
         x = self.patcher(x)
 
         x = x + self.img_pos_embedding()
         if hasattr(self, 'sublayer_dropout'):
             x = self.sublayer_dropout(x)
         
+        attentions = []
+        
         for block in self.encoder_blocks:
             x = block(x)
+            if return_attn:
+                attentions.append(block.last_attn)
 
         x = self.images_norm(x)
+        
+        if return_attn:
+            return x, attentions
 
         return x
 
 class ViTEncoder(torch.nn.Module):
     def __init__(self, model_patch, encoding_strategy, verbose=False):
         super().__init__()
+        if model_patch == config.EncoderArch.VIT_STYLE_BASE:
+            model_patch = config.EncoderArch.VIT_STYLE_BASE.value
+        elif model_patch == config.EncoderArch.VIT_STYLE_LARGE:
+            model_patch = config.EncoderArch.VIT_STYLE_LARGE.value
         self.vit = ViTModel.from_pretrained(model_patch, output_attentions=True, output_hidden_states=False)
         
         # remove the classification head
@@ -525,9 +547,8 @@ class CPTR(torch.nn.Module):
             print("Initialized CNN ResNet-50 Encoder")
         elif encoder_arch == config.EncoderArch.VIT_STYLE_BASE or \
             encoder_arch == config.EncoderArch.VIT_STYLE_LARGE:
-            model_patch = encoder_arch
-            self.encoder = ViTEncoder(model_patch=model_patch, encoding_strategy=encoding_strategy)
-            print(f"Initialized ViT Encoder: {model_patch}")
+            self.encoder = ViTEncoder(model_patch=encoder_arch, encoding_strategy=encoding_strategy)
+            print(f"Initialized ViT Encoder: {encoder_arch}")
         elif encoder_arch == config.EncoderArch.CNN_CPTR_STYLE:
             self.encoder = CNN_CPTREncoder(img_emb_dim=img_emb_dim, 
                                    num_patches=num_patches,

@@ -52,3 +52,4 @@ typeguard==4.4.4
 typing_extensions==4.15.0
 tzdata==2025.2
 wget==3.2
+nltk==3.9.2

@@ -14,10 +14,10 @@ def tokenize(sentence: str):
     return sentence.lower().strip().split()
 
 
-def evaluate():
+def evaluate(num_batches: int = None):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    model_folder = cfg.CONFIG_ROOT / ""                           #add folder name
+    model_folder = cfg.CONFIG_ROOT / "results/config_20260121-222825" #add folder name
     config = cfg.import_config(model_folder / "config.json")
     model_path = model_folder / "cptr_model.pth"
 
@@ -103,10 +103,13 @@ def evaluate():
                     tokens = torch.tensor(tokens)
 
                 pred_caption = tokenizer.decode(tokens)
+                pred_caption = tokenizer.strip(pred_caption)
 
-                all_refs.append([[tokenize(gt_captions[i])]])
+                all_refs.append([tokenize(gt_captions[i])])
                 all_hypos.append(tokenize(pred_caption))
-
+            if num_batches is not None and len(all_hypos) >= num_batches * test_dataloader.batch_size:
+                break
+    
     scores = metrics.calculate(all_refs, all_hypos, train=False)
 
     print("\nEvaluation results:")
@@ -118,4 +121,4 @@ def evaluate():
 
 
 if __name__ == "__main__":
-    evaluate()
+    evaluate(num_batches=2)

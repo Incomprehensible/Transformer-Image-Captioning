@@ -4,6 +4,11 @@ from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from nltk.translate.gleu_score import sentence_gleu
 from nltk.translate.meteor_score import meteor_score
 
+import nltk
+nltk.download('wordnet')
+nltk.download('omw-1.4')
+nltk.download('punkt')
+
 
 class BLUE:
     def __init__(self, ngrams: int = 4) -> None:
@@ -52,6 +57,8 @@ class Metrics:
 
         self.all = [bleu1, bleu2, bleu3, self.bleu4, self.gleu, meteor]
 
+    # The expected type for hypothesis is list(str)
+    # candidate is a list(list(str))
     def calculate(
         self,
         refs: List[List[List[str]]],
@@ -59,7 +66,7 @@ class Metrics:
         train: bool = False
     ) -> Dict[str, float]:
 
-        score_fns = [self.bleu4, self.gleu] if train else self.all
+        score_fns = [self.bleu4] if train else self.all
 
         return {
             repr(fn): mean(map(fn, refs, hypos))

@@ -8,7 +8,11 @@ from dataset.loader import DatasetLoader
 from tokenizer.tokenizer import ByteLevelBPE, TokenizerHF
 from model.CPTR_upd import CPTR
 from nlg_metrics import Metrics
+import random
 
+seed = random.randint(0, 10000)
+torch.manual_seed(seed)
+random.seed(seed)
 
 def tokenize(sentence: str):
     return sentence.lower().strip().split()
@@ -17,7 +21,7 @@ def tokenize(sentence: str):
 def evaluate(num_batches: int = None):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    model_folder = cfg.CONFIG_ROOT / "results/config_20260121-222825" #add folder name
+    model_folder = cfg.CONFIG_ROOT / "results/config_20260122-140134" #add folder name
     config = cfg.import_config(model_folder / "config.json")
     model_path = model_folder / "cptr_model.pth"
 
@@ -29,7 +33,7 @@ def evaluate(num_batches: int = None):
         batch_size_test=config["BATCH_SIZE_TEST"],
         split_ratio=config["SPLIT_RATIO"],
         shuffle_test=False,
-        seed=config["RANDOM_SEED"]
+        seed=seed
     )
     data_loader.load_data()
     test_dataloader = data_loader.get_test_dataloader()
@@ -96,7 +100,8 @@ def evaluate(num_batches: int = None):
                     bos_token=tokenizer.get_vocab()[cfg.SpecialTokens.BOS.value],
                     eos_token=tokenizer.get_vocab()[cfg.SpecialTokens.EOS.value],
                     max_len=config["MAX_TEXT_SEQUENCE_LENGTH"],
-                    device=device
+                    device=device,
+                    used_tokens_penalty=True
                 )
 
                 if not isinstance(tokens, torch.Tensor):
@@ -121,4 +126,4 @@ def evaluate(num_batches: int = None):
 
 
 if __name__ == "__main__":
-    evaluate(num_batches=2)
+    evaluate()

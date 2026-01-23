@@ -624,7 +624,8 @@ class CPTR(torch.nn.Module):
                  bos_token: int,
                  eos_token: int,
                  max_len: int,
-                 device: torch.device) -> List[int]:
+                 device: torch.device,
+                 used_tokens_penalty: bool = False) -> List[int]:
 
         img_features = self.encoder(image)
         
@@ -637,6 +638,9 @@ class CPTR(torch.nn.Module):
         while tokens.shape[1] < max_len and tokens[0, -1] != eos_token:
             text_features = self.decoder(text_tokens=tokens, enc_output=img_features, attn_mask=attn_mask, pad_mask=None) # Q
             logits = self.linear(text_features)
+            if used_tokens_penalty:
+                for t in set(tokens[0].cpu().numpy().tolist()):
+                    logits[0, -1, t] /= 1.5
             next_token = torch.argmax(logits[0, -1, :], dim=0).item()
             tokens = torch.cat(
                 (tokens, torch.tensor([[next_token]], requires_grad=False).to(device)),

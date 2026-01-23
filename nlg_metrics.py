@@ -47,15 +47,15 @@ class METEOR:
 
 class Metrics:
     def __init__(self) -> None:
-        bleu1 = BLUE(ngrams=1)
-        bleu2 = BLUE(ngrams=2)
-        bleu3 = BLUE(ngrams=3)
+        self.bleu1 = BLUE(ngrams=1)
+        self.bleu2 = BLUE(ngrams=2)
+        self.bleu3 = BLUE(ngrams=3)
         self.bleu4 = BLUE(ngrams=4)
 
         self.gleu = GLEU()
-        meteor = METEOR()
+        self.meteor = METEOR()
 
-        self.all = [bleu1, bleu2, bleu3, self.bleu4, self.gleu, meteor]
+        self.all = [self.bleu1, self.bleu2, self.bleu3, self.bleu4, self.gleu, self.meteor]
 
     # The expected type for hypothesis is list(str)
     # candidate is a list(list(str))
@@ -66,7 +66,7 @@ class Metrics:
         train: bool = False
     ) -> Dict[str, float]:
 
-        score_fns = [self.bleu4] if train else self.all
+        score_fns = [self.bleu4, self.meteor] if train else self.all
 
         return {
             repr(fn): mean(map(fn, refs, hypos))

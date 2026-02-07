@@ -9,7 +9,6 @@ nltk.download('wordnet')
 nltk.download('omw-1.4')
 nltk.download('punkt')
 
-
 class BLUE:
     def __init__(self, ngrams: int = 4) -> None:
         self.smoothing = SmoothingFunction().method3

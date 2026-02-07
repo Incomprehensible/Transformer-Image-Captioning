@@ -7,12 +7,9 @@ import config as cfg
 from dataset.loader import DatasetLoader
 from tokenizer.tokenizer import ByteLevelBPE, TokenizerHF
 from model.CPTR_upd import CPTR
-from nlg_metrics import Metrics
+from evaluation.nlg_metrics import Metrics
 import random
 
-seed = random.randint(0, 10000)
-torch.manual_seed(seed)
-random.seed(seed)
 
 def tokenize(sentence: str):
     return sentence.lower().strip().split()
@@ -21,19 +18,19 @@ def tokenize(sentence: str):
 def evaluate(num_batches: int = None):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    model_folder = cfg.CONFIG_ROOT / "results/config_20260122-140134" #add folder name
+    model_folder = cfg.CONFIG_ROOT / "experiments/config_20260207-182348" #add folder name
     config = cfg.import_config(model_folder / "config.json")
-    model_path = model_folder / "cptr_model.pth"
+    model_path = model_folder / "cptr_best_meteor_model.pth"
 
     data_loader = DatasetLoader(
         dataset_type=config["DATASET"],
         img_height=config["IMG_HEIGHT"],
         img_width=config["IMG_WIDTH"],
-        batch_size_train=config["BATCH_SIZE_TRAIN"],
-        batch_size_test=config["BATCH_SIZE_TEST"],
+        batch_size_train=cfg.BATCH_SIZE_TRAIN,
+        batch_size_test=cfg.BATCH_SIZE_TEST,
         split_ratio=config["SPLIT_RATIO"],
         shuffle_test=False,
-        seed=seed
+        seed=config["RANDOM_SEED"]
     )
     data_loader.load_data()
     test_dataloader = data_loader.get_test_dataloader()
@@ -45,7 +42,7 @@ def evaluate(num_batches: int = None):
     else:
         tokenizer = ByteLevelBPE(special_tokens=special_tokens)
         tokenizer.load(
-            folder=config["TOKENIZER_DATA_PATH"],
+            folder=cfg.TOKENIZER_DATA_PATH,
             filename_prefix=config["TOKENIZER_FILENAME_PREFIX"]
         )
 
@@ -126,4 +123,4 @@ def evaluate(num_batches: int = None):
 
 
 if __name__ == "__main__":
-    evaluate()
+    evaluate(num_batches=10)

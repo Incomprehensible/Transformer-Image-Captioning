@@ -183,7 +183,7 @@ def parse_metrics_arg(arg_list):
 def main():
     p = argparse.ArgumentParser(description='Plot metrics vs epoch on one plot')
     p.add_argument('-i', '--input', required=True, help='Path to training_results.json')
-    p.add_argument('-o', '--outdir', default='plots_epochs', help='Output directory')
+    p.add_argument('-o', '--outdir', default='plots', help='Output directory')
     p.add_argument('-m', '--metrics', nargs='*', help='Metrics to plot (space or comma separated). Default: all')
     p.add_argument('-n', '--name', default='metrics_over_epochs.png', help='Output filename')
     p.add_argument('--normalize', default='none', choices=['none', 'minmax', 'zscore', 'max'],

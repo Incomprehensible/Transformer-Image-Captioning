@@ -99,14 +99,32 @@ coco_data = {
     'ViT (Base)': {
         'bleu1': 0.2353, 'bleu2': 0.1318, 'bleu3': 0.0900, 'bleu4': 0.0655, 'gleu': 0.0857, 'meteor': 0.1693
     },
+    'CNN-CPTR (Hybrid)': {
+        'bleu1': 0.2687, 'bleu2': 0.1603, 'bleu3': 0.1130, 'bleu4': 0.0846, 'gleu': 0.1090, 'meteor': 0.2069
+    },
     'Custom CPTR (Scratch)': {
         'bleu1': 0.2306, 'bleu2': 0.1254, 'bleu3': 0.0854, 'bleu4': 0.0617, 'gleu': 0.0810, 'meteor': 0.1558
     },
     'Random Baseline': {
         'bleu1': 0.0073, 'bleu2': 0.0053, 'bleu3': 0.0038, 'bleu4': 0.0027, 'gleu': 0.0019, 'meteor': 0.0103
     }
-    
+}
+
+docci_data = {
+    'CNN (ResNet-50)': {
+        'bleu1': 0.2363, 'bleu2': 0.1119, 'bleu3': 0.0526, 'bleu4': 0.0294, 'gleu': 0.0868, 'meteor': 0.1763
+    },
+    'ViT (Base)': {
+        'bleu1': 0.2306, 'bleu2': 0.1068, 'bleu3': 0.0491, 'bleu4': 0.0270, 'gleu': 0.0828, 'meteor': 0.1699
+    },
+    'CNN-CPTR (Hybrid)': {
+        'bleu1': 0.2326, 'bleu2': 0.1102, 'bleu3': 0.0511, 'bleu4': 0.0276, 'gleu': 0.0822, 'meteor': 0.1761
+    },
+    'Random Baseline': {
+        'bleu1': 0.0068, 'bleu2': 0.0035, 'bleu3': 0.0023, 'bleu4': 0.0016, 'gleu': 0.0017, 'meteor': 0.0171
+    }
 }
 
 plot_metrics('FLICKR', flickr_data, 'results/plots/flickr_metrics_comparison.png')
 plot_metrics('COCO', coco_data, 'results/plots/coco_metrics_comparison.png')
+plot_metrics('DOCCI', docci_data, 'results/plots/docci_metrics_comparison.png')

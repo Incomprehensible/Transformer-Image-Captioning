@@ -15,9 +15,9 @@ RANDOM_SEED = 42
 
 class Dataset(str, Enum):
     DOCCI = 'docci'
-    DOCCI_IIW = 'docci_iiw' # TODO
     COCO = 'coco'
     FLICKR = 'flickr'
+    # DOCCI_IIW = 'docci_iiw' # TODO
 
 DATASET = Dataset.COCO
 
@@ -86,7 +86,7 @@ class EncoderArch(str, Enum):
     CNN_CPTR_STYLE = 'cnn-cptr-style'
     # CUSTOM_SHOW_AND_TELL_STYLE = 'custom-show-attend-tell'
 
-ENCODER_ARCH = EncoderArch.CUSTOM_CPTR_STYLE
+ENCODER_ARCH = EncoderArch.CNN_CPTR_STYLE
 
 class ViTEncodingStrategy(str, Enum):
     PATCHES = 'last_hidden_state_patches'
@@ -137,8 +137,8 @@ USE_PROJECTION_LAYER = (IMG_EMBEDDING_DIM != EMBEDDING_DIM)
 
 USE_WEIGHT_TYING = False
 
-ENCODER_NUM_BLOCKS = 8
-ENCODER_NUM_HEADS = 12
+ENCODER_NUM_BLOCKS = 4
+ENCODER_NUM_HEADS = 8
 ENCODER_DROPOUT_PROB = 0.1
 ENCODER_HIDDEN_DIM = IMG_EMBEDDING_DIM * 4
 
@@ -151,9 +151,9 @@ SUBLAYER_DROPOUT = False
 # Training config
 USE_ACCUMULATED_GRADIENTS = False
 ACCUMULATION_STEPS = 2
-BATCH_SIZE_TRAIN = 16
+BATCH_SIZE_TRAIN = 32 # 16
 BATCH_SIZE_VAL = 1
-BATCH_SIZE_TEST = 16
+BATCH_SIZE_TEST = 32 # 16
 NUM_FREEZE_EPOCHS = 5#20
 NUM_EPOCHS = 15#20
 LR = 3e-4

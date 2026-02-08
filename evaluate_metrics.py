@@ -10,12 +10,14 @@ from model.CPTR_upd import CPTR
 from evaluation.nlg_metrics import Metrics
 import random
 
+import argparse
+
 
 def tokenize(sentence: str):
     return sentence.lower().strip().split()
 
 
-def evaluate(num_batches: int = None):
+def evaluate(model_path: str, num_batches: int = None):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     model_folder = cfg.CONFIG_ROOT / "experiments/config_20260207-182348" #add folder name
@@ -123,4 +125,8 @@ def evaluate(num_batches: int = None):
 
 
 if __name__ == "__main__":
-    evaluate(num_batches=10)
+    parser = argparse.ArgumentParser(description="Evaluate the image captioning model using Natural Language Processing metrics.")
+    parser.add_argument("--model_path", type=str, required=True, help="Path to the trained model file (e.g., model.pth).")
+    parser.add_argument("--num_batches", type=int, default=None, help="Number of batches to evaluate (default: all).")
+    args = parser.parse_args()
+    evaluate(model_path=args.model_path, num_batches=args.num_batches)

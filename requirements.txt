@@ -54,3 +54,4 @@ tzdata==2025.2
 wget==3.2
 nltk==3.9.2
 seaborn==0.13.2
+torchvista==0.2.11

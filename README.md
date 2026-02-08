@@ -103,11 +103,11 @@ However, for running the inference on pretrained models, you don't need to modif
 5. Train a new model by editing the [`config.py`](./config.py) file with your desired settings and running the [`train_model.ipynb`](./train_model.ipynb) notebook.
 6. Evaluate the model using the [`evaluate_metrics.py`](./evaluate_metrics.py) script:
    ```bash
-    python evaluate_metrics.py --model_path <path_to_your_model_folder> # --num_batches 10 (optional, specify number of batches to evaluate)
+    python evaluate_metrics.py --model_path <path_to_your_model_folder> # --model_name <model_file_name> --num_batches 10 (optional, specify number of batches to evaluate)
     ```
     For example:
     ```bash
-    python evaluate_metrics.py --num_batches 10 --model_path experiments/config_20260129-231542
+    python evaluate_metrics.py --num_batches 10 --model_path experiments/config_20260129-231542 # defaults to using 'cptr_model.pth' as the model file name
     ```
 7. Visualize self-attention maps using the [`visualize_self_attention.ipynb`](./visualization/visualize_self_attention.ipynb) notebook. Make sure to specify the path to the pretrained model folder.
 8. Train a custom tokenizer using the [`train_bpe_tokenizer.ipynb`](./train_bpe_tokenizer.ipynb) notebook. Adjust the dataset and training parameters as needed.

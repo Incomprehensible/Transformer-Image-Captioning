@@ -65,8 +65,8 @@ class DatasetLoader:
         # Placeholder for loading data logic        
         if self.dataset_type == config.Dataset.DOCCI:
             dataset = self._load_docci()
-        elif self.dataset_type == config.Dataset.DOCCI_IIW:
-            dataset = self._load_docci_iiw()
+        # elif self.dataset_type == config.Dataset.DOCCI_IIW:
+        #     dataset = self._load_docci_iiw()
         elif self.dataset_type == config.Dataset.COCO:
             dataset = self._load_coco()
         elif self.dataset_type == config.Dataset.FLICKR:

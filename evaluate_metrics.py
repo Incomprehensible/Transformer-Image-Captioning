@@ -1,3 +1,4 @@
+import pathlib
 import torch
 from tqdm.auto import tqdm
 from statistics import mean
@@ -17,12 +18,18 @@ def tokenize(sentence: str):
     return sentence.lower().strip().split()
 
 
-def evaluate(model_path: str, num_batches: int = None):
+def evaluate(model_folder: str, model_name: str = None, num_batches: int = None):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    model_folder = cfg.CONFIG_ROOT / "experiments/config_20260207-182348" #add folder name
+    model_folder = pathlib.Path(model_folder)
     config = cfg.import_config(model_folder / "config.json")
-    model_path = model_folder / "cptr_best_meteor_model.pth"
+    
+    if model_name is None:
+        model_path = model_folder / "cptr_model.pth"
+    else:
+        if not '.pth' in model_name:
+            model_name += ".pth"
+        model_path = model_folder / model_name
 
     data_loader = DatasetLoader(
         dataset_type=config["DATASET"],
@@ -126,7 +133,8 @@ def evaluate(model_path: str, num_batches: int = None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate the image captioning model using Natural Language Processing metrics.")
-    parser.add_argument("--model_path", type=str, required=True, help="Path to the trained model file (e.g., model.pth).")
+    parser.add_argument("--model_path", type=str, required=True, help="Path to the trained model folder.")
+    parser.add_argument("--model_name", type=str, default=None, help="Name of the model file (e.g., 'cptr_model.pth'). If not provided, defaults to 'cptr_model.pth'.")
     parser.add_argument("--num_batches", type=int, default=None, help="Number of batches to evaluate (default: all).")
     args = parser.parse_args()
-    evaluate(model_path=args.model_path, num_batches=args.num_batches)
+    evaluate(model_folder=args.model_path, model_name=args.model_name, num_batches=args.num_batches)

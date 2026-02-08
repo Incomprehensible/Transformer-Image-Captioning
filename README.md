@@ -79,6 +79,7 @@ The project is configured through a single [`config.py`](./config.py) file, whic
 However, for running the inference on pretrained models, you don't need to modify the `config.py` file. Instead, the scripts will load the pretrained model and its corresponding configuration from the specified folder in the code.
 
 ### Installation and Build
+Our code is compatible with Python 3.10 (We used Python 3.10.12).
 1. Clone the repository:
    ```bash
    git clone https://github.com/Incomprehensible/Transformer-Image-Captioning.git
@@ -86,7 +87,7 @@ However, for running the inference on pretrained models, you don't need to modif
    ```
 2. Create a virtual environment and install dependencies:
    ```bash
-   python -m venv venv
+   python3.10 -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    pip install -r requirements.txt
    ```
@@ -123,5 +124,6 @@ However, for running the inference on pretrained models, you don't need to modif
 * Training a model to produce very long captions based on DOCCI dataset is very challenging. The model struggles to learn the long-range dependencies required for generating coherent long captions, and the evaluation metrics used (BLEU, METEOR) are not well-suited for assessing the quality of long captions. We noticed that larger models trained on DOCCI show superior command of language and grammar but may struggle to see concepts. With time they start to produce captions degrading in quality, or start repeating words and phrases. The model may also hallucinate, so it's crucial to choose a suitable encoder and training strategy for this dataset.
 
 ## Warnings
+* Note that we tried to preserve as many checkpoints as possible (and kinda overdid it) for the purpose of course project validation, therefore the cloning of the repository may take a long time and require a lot of disk space.
 * Technically `vit-large-patch16-224-in21k` is supported in the code but we never tested it.\
 * Ensure that you have a stable internet connection when running the code.

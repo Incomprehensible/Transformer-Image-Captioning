@@ -1,13 +1,11 @@
 # Transformer-Image-Captioning
 Final Project for Machine Learning course (700.851) at the University of Klagenfurt.
-
-This repository contains the implementation of a Transformer-based image captioning model. The model is trained on the Flickr8k dataset and is capable of generating descriptive captions for images.
+ 
+The project focuses on implementation and training of a Transformer-based image captioning model. It explores the performance of various encoder-decoder configurations, specifically comparing traditional CNN backbones against modern Vision Transformer (ViT) approaches, all integrated into an architecture inspired by the CPTR (`CPTR: Full Transformer Network for Image Captioning`) [architecture paper](https://arxiv.org/abs/2101.10804).
 
 This repository contains:
 * A comprehensive framework for training and evaluating Transformer-based image captioning models. 
 * Captioning models implementation.
- 
-The project explores the performance of various encoder-decoder configurations, specifically comparing traditional CNN backbones against modern Vision Transformer (ViT) approaches, all integrated into an architecture inspired by the CPTR (`CPTR: Full Transformer Network for Image Captioning`) [architecture paper](https://arxiv.org/abs/2101.10804).
 
 ---
 
@@ -125,4 +123,5 @@ However, for running the inference on pretrained models, you don't need to modif
 * Training a model to produce very long captions based on DOCCI dataset is very challenging. The model struggles to learn the long-range dependencies required for generating coherent long captions, and the evaluation metrics used (BLEU, METEOR) are not well-suited for assessing the quality of long captions. We noticed that larger models trained on DOCCI show superior command of language and grammar but may struggle to see concepts. With time they start to produce captions degrading in quality, or start repeating words and phrases. The model may also hallucinate, so it's crucial to choose a suitable encoder and training strategy for this dataset.
 
 ## Warnings
-* Technically `vit-large-patch16-224-in21k` is supported in the code but we never tested it.
+* Technically `vit-large-patch16-224-in21k` is supported in the code but we never tested it.\
+* Ensure that you have a stable internet connection when running the code.

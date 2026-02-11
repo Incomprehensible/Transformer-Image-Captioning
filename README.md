@@ -24,6 +24,7 @@ The framework supports 4 primary encoder configurations:
 * **CNN Encoder**: Utilizes a CNN backbone to extract spatial feature maps. Pretrained and imported as `resnet50`.
 * **Vision Transformer (ViT)**: Processes images as a sequence of fixed-size flattened patches and applies self-attention to capture global context. It includes CLS token and patch tokens. Pretrained and imported as `vit-base-patch16-224-in21k` or `vit-large-patch16-224-in21k`.
 * **Custom CPTR Style**: Based on the CPTR paper, which flattens a sequence of fix-sized embedded patches and applies learnable positional embeddings. Trained from scratch.
+* **CNN-CPTR**: A hybrid approach that combines CNN feature extraction with CPTR-style patch embedding and positional encoding. CNN pretrained, CPTR trained from scratch.
 
 ViT-style encoder supports 3 configuration options:
 
@@ -125,5 +126,5 @@ Our code is compatible with Python 3.10 (We used Python 3.10.12).
 
 ## Warnings
 * Note that we tried to preserve as many checkpoints as possible (and kinda overdid it) for the purpose of course project validation, therefore the cloning of the repository may take a long time and require a lot of disk space.
-* Technically `vit-large-patch16-224-in21k` is supported in the code but we never tested it.\
+* Technically `vit-large-patch16-224-in21k` is supported in the code but we never tested it.
 * Ensure that you have a stable internet connection when running the code.

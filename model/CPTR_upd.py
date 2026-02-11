@@ -62,7 +62,6 @@ class ConvPatcher(torch.nn.Module):
     def visualize_patches(self, convs, num=5):
         fig, axs = plt.subplots(nrows=1, ncols=5, figsize=(12, 12))
         
-        # Plot random image feature maps
         random_indexes = random.sample(range(0, self.D), k=num) # pick 5 numbers between 0 and the embedding size
         for i, idx in enumerate(random_indexes):
             image_conv_feature_map = convs[0, idx, :, :].squeeze().detach().cpu().numpy() # index on the output tensor of the convolutional layer
